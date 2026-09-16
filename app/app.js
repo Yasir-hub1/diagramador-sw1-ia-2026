@@ -6,6 +6,7 @@ const pool = require('./db');
 const bcrypt = require('bcrypt');
 const sessionMiddleware = require('./session');
 const roomsRouter = require('./routes/rooms');
+const voiceRouter = require('./routes/voice');
 const attachSockets = require('./sockets');
 
 const app = express();
@@ -78,6 +79,9 @@ app.get('/logout', (req, res) => {
 
 // Rutas de diagramas / salas colaborativas
 app.use('/', roomsRouter);
+
+// Rutas de IA (transcripción de voz)
+app.use('/', voiceRouter);
 
 // Sockets de colaboración en tiempo real
 attachSockets(io, sessionMiddleware);

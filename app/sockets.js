@@ -1,16 +1,14 @@
 // sockets.js
 const diagramsRepository = require('./repositories/diagramsRepository');
-const validators = require('../public/uml-validators');
+const mutations = require('./diagramMutations');
+const { roomName } = mutations;
+const { runDiagramAgent } = require('./ai/diagramAgent');
 
 // Presencia en memoria: shareToken -> Map<socketId, {userId, userName}>
 const presenceByRoom = new Map();
 
 // Edición en vivo en memoria: shareToken -> Map<elementId, {userId, userName, socketId}>
 const editingByRoom = new Map();
-
-function roomName(shareToken) {
-  return 'diagram:' + shareToken;
-}
 
 function getPresenceList(shareToken) {
   const room = presenceByRoom.get(shareToken);
@@ -26,26 +24,6 @@ function getActiveEditors(shareToken) {
     result[elementId] = { userId: value.userId, userName: value.userName };
   });
   return result;
-}
-
-function validateClassPayload(data) {
-  if (!data || typeof data !== 'object') return false;
-  if (!data.elementId) return false;
-  if (data.stereotype && !validators.validateStereotype(data.stereotype)) return false;
-  const attributes = data.attributes || [];
-  const methods = data.methods || [];
-  if (!Array.isArray(attributes) || !attributes.every(validators.validateAttribute)) return false;
-  if (!Array.isArray(methods) || !methods.every(validators.validateMethod)) return false;
-  return true;
-}
-
-function validateLinkPayload(data) {
-  if (!data || typeof data !== 'object') return false;
-  if (!data.linkId || !data.sourceId || !data.targetId) return false;
-  if (!validators.validateRelationType(data.type)) return false;
-  if (data.sourceMultiplicity && !validators.validateMultiplicity(data.sourceMultiplicity)) return false;
-  if (data.targetMultiplicity && !validators.validateMultiplicity(data.targetMultiplicity)) return false;
-  return true;
 }
 
 function attachSockets(io, sessionMiddleware) {
@@ -65,6 +43,16 @@ function attachSockets(io, sessionMiddleware) {
     const userName = session.userName;
     let currentShareToken = null;
     let currentDiagramId = null;
+
+    function buildCtx(excludeSocket) {
+      return {
+        shareToken: currentShareToken,
+        diagramId: currentDiagramId,
+        userId,
+        userName,
+        excludeSocket: excludeSocket ? socket : null,
+      };
+    }
 
     socket.on('room:join', async ({ shareToken }) => {
       try {
@@ -100,85 +88,54 @@ function attachSockets(io, sessionMiddleware) {
       }
     });
 
-    async function recordActivity(actionType, elementId, elementLabel, payload) {
-      if (!currentDiagramId) return;
+    socket.on('class:add', async (data) => {
+      if (!currentShareToken) return;
+      const result = await mutations.applyClassAdd(io, buildCtx(true), data);
+      if (!result.ok) socket.emit('error:validation', { message: result.message });
+    });
+
+    socket.on('class:update', async (data) => {
+      if (!currentShareToken) return;
+      const result = await mutations.applyClassUpdate(io, buildCtx(true), data);
+      if (!result.ok) socket.emit('error:validation', { message: result.message });
+    });
+
+    socket.on('class:remove', async (data) => {
+      if (!currentShareToken) return;
+      await mutations.applyClassRemove(io, buildCtx(true), data);
+    });
+
+    socket.on('link:add', async (data) => {
+      if (!currentShareToken) return;
+      const result = await mutations.applyLinkAdd(io, buildCtx(true), data);
+      if (!result.ok) socket.emit('error:validation', { message: result.message });
+    });
+
+    socket.on('link:update', async (data) => {
+      if (!currentShareToken) return;
+      const result = await mutations.applyLinkUpdate(io, buildCtx(true), data);
+      if (!result.ok) socket.emit('error:validation', { message: result.message });
+    });
+
+    socket.on('link:remove', async (data) => {
+      if (!currentShareToken) return;
+      await mutations.applyLinkRemove(io, buildCtx(true), data);
+    });
+
+    socket.on('ai:command', async ({ text, context }) => {
+      if (!currentShareToken) return;
       try {
-        await diagramsRepository.logActivity({
-          diagramId: currentDiagramId,
-          userId,
-          userName,
-          actionType,
-          elementId,
-          elementLabel,
-          payload,
-        });
-        io.to(roomName(currentShareToken)).emit('activity:editor', {
-          elementId,
-          userName,
-          at: new Date().toISOString(),
-        });
+        const { reply, operations } = await runDiagramAgent(text, context);
+        const skipped = [];
+        for (const op of operations) {
+          const result = await applyAiOperation(io, buildCtx(false), op, context);
+          if (!result.ok) skipped.push(result.message);
+        }
+        socket.emit('ai:result', { reply, skipped });
       } catch (err) {
         console.error(err.message);
+        socket.emit('ai:result', { reply: 'Ocurrió un error al procesar tu instrucción con la IA.', skipped: [] });
       }
-    }
-
-    socket.on('class:add', (data) => {
-      if (!currentShareToken || !validateClassPayload(data)) {
-        return socket.emit('error:validation', { message: 'Clase inválida' });
-      }
-      socket.to(roomName(currentShareToken)).emit('class:added', { ...data, userId, userName });
-      recordActivity('class:add', data.elementId, data.name, data);
-    });
-
-    socket.on('class:update', (data) => {
-      if (!currentShareToken || !data || !data.elementId) {
-        return socket.emit('error:validation', { message: 'Clase inválida' });
-      }
-      const patch = data.patch || {};
-      if (patch.attributes && !patch.attributes.every(validators.validateAttribute)) {
-        return socket.emit('error:validation', { message: 'Atributo con formato UML inválido' });
-      }
-      if (patch.methods && !patch.methods.every(validators.validateMethod)) {
-        return socket.emit('error:validation', { message: 'Método con formato UML inválido' });
-      }
-      if (patch.stereotype && !validators.validateStereotype(patch.stereotype)) {
-        return socket.emit('error:validation', { message: 'Estereotipo inválido' });
-      }
-      socket.to(roomName(currentShareToken)).emit('class:updated', { ...data, userId, userName });
-      recordActivity('class:update', data.elementId, patch.name, data);
-    });
-
-    socket.on('class:remove', (data) => {
-      if (!currentShareToken || !data || !data.elementId) return;
-      socket.to(roomName(currentShareToken)).emit('class:removed', { ...data, userId, userName });
-      recordActivity('class:remove', data.elementId, null, data);
-    });
-
-    socket.on('link:add', (data) => {
-      if (!currentShareToken || !validateLinkPayload(data)) {
-        return socket.emit('error:validation', { message: 'Relación inválida' });
-      }
-      socket.to(roomName(currentShareToken)).emit('link:added', { ...data, userId, userName });
-      recordActivity('link:add', data.linkId, data.type, data);
-    });
-
-    socket.on('link:update', (data) => {
-      if (!currentShareToken || !data || !data.linkId) return;
-      const patch = data.patch || {};
-      if (patch.sourceMultiplicity && !validators.validateMultiplicity(patch.sourceMultiplicity)) {
-        return socket.emit('error:validation', { message: 'Multiplicidad inválida' });
-      }
-      if (patch.targetMultiplicity && !validators.validateMultiplicity(patch.targetMultiplicity)) {
-        return socket.emit('error:validation', { message: 'Multiplicidad inválida' });
-      }
-      socket.to(roomName(currentShareToken)).emit('link:updated', { ...data, userId, userName });
-      recordActivity('link:update', data.linkId, null, data);
-    });
-
-    socket.on('link:remove', (data) => {
-      if (!currentShareToken || !data || !data.linkId) return;
-      socket.to(roomName(currentShareToken)).emit('link:removed', { ...data, userId, userName });
-      recordActivity('link:remove', data.linkId, null, data);
     });
 
     socket.on('graph:save', async ({ graphJson }, ack) => {
@@ -232,6 +189,93 @@ function attachSockets(io, sessionMiddleware) {
       }
     });
   });
+}
+
+// ---------- Resolución de operaciones de la IA (nombres -> IDs) ----------
+
+function generateId(prefix) {
+  return prefix + '_' + Math.random().toString(36).substr(2, 9);
+}
+
+function findClassByName(context, name) {
+  if (!name) return null;
+  const target = name.trim().toLowerCase();
+  return (context.classes || []).find((c) => c.name.trim().toLowerCase() === target) || null;
+}
+
+function findLinkByNames(context, relationType, sourceName, targetName) {
+  const source = findClassByName(context, sourceName);
+  const target = findClassByName(context, targetName);
+  if (!source || !target) return null;
+  return (context.relations || []).find(
+    (r) => r.type === relationType && r.sourceId === source.id && r.targetId === target.id
+  ) || null;
+}
+
+async function applyAiOperation(io, ctx, op, context) {
+  switch (op.op) {
+    case 'class:add': {
+      if (!op.className) return { ok: false, message: 'La IA no indicó el nombre de la clase a crear.' };
+      const data = {
+        elementId: generateId('class'),
+        name: op.className,
+        stereotype: op.stereotype || 'none',
+        attributes: op.attributes || [],
+        methods: op.methods || [],
+        position: { x: 80 + Math.round(Math.random() * 300), y: 60 + Math.round(Math.random() * 300) },
+      };
+      const result = await mutations.applyClassAdd(io, ctx, data);
+      return result.ok ? result : { ok: false, message: `No pude crear "${op.className}": ${result.message}` };
+    }
+    case 'class:update': {
+      const existing = findClassByName(context, op.className);
+      if (!existing) return { ok: false, message: `No encontré la clase "${op.className}".` };
+      const patch = {};
+      if (op.newClassName) patch.name = op.newClassName;
+      if (op.stereotype) patch.stereotype = op.stereotype;
+      if (op.attributes) patch.attributes = op.attributes;
+      if (op.methods) patch.methods = op.methods;
+      const result = await mutations.applyClassUpdate(io, ctx, { elementId: existing.id, patch });
+      return result.ok ? result : { ok: false, message: `No pude actualizar "${op.className}": ${result.message}` };
+    }
+    case 'class:remove': {
+      const existing = findClassByName(context, op.className);
+      if (!existing) return { ok: false, message: `No encontré la clase "${op.className}" para eliminar.` };
+      return mutations.applyClassRemove(io, ctx, { elementId: existing.id });
+    }
+    case 'link:add': {
+      const source = findClassByName(context, op.className);
+      const target = findClassByName(context, op.targetClassName);
+      if (!source || !target) {
+        return { ok: false, message: `No pude crear la relación: clase(s) "${op.className}"/"${op.targetClassName}" no encontradas.` };
+      }
+      const data = {
+        linkId: generateId('link'),
+        type: op.relationType,
+        sourceId: source.id,
+        targetId: target.id,
+        sourceMultiplicity: op.sourceMultiplicity,
+        targetMultiplicity: op.targetMultiplicity,
+      };
+      const result = await mutations.applyLinkAdd(io, ctx, data);
+      return result.ok ? result : { ok: false, message: `No pude crear la relación: ${result.message}` };
+    }
+    case 'link:update': {
+      const link = findLinkByNames(context, op.relationType, op.className, op.targetClassName);
+      if (!link) return { ok: false, message: `No encontré la relación ${op.relationType} entre "${op.className}" y "${op.targetClassName}".` };
+      const patch = {};
+      if (op.sourceMultiplicity !== undefined) patch.sourceMultiplicity = op.sourceMultiplicity;
+      if (op.targetMultiplicity !== undefined) patch.targetMultiplicity = op.targetMultiplicity;
+      return mutations.applyLinkUpdate(io, ctx, { linkId: link.id, patch });
+    }
+    case 'link:remove': {
+      const link = findLinkByNames(context, op.relationType, op.className, op.targetClassName);
+      if (!link) return { ok: false, message: `No encontré la relación ${op.relationType} entre "${op.className}" y "${op.targetClassName}" para eliminar.` };
+      return mutations.applyLinkRemove(io, ctx, { linkId: link.id });
+    }
+    default:
+      return { ok: false, message: `Operación desconocida: ${op.op}` };
+  }
 }
 
 module.exports = attachSockets;

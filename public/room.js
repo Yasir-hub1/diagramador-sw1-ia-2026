@@ -13,6 +13,10 @@ $(document).ready(function () {
     interactive: true,
   });
 
+  // Expone el grafo/socket para que public/ai-assistant.js pueda leer el
+  // estado actual del diagrama (contexto para la IA) y enviar comandos.
+  window.DiagramAPI = { graph, socket, ROOM };
+
   // Evita reemitir al servidor cuando estamos aplicando un cambio remoto.
   let applyingRemote = false;
 
