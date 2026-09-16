@@ -125,6 +125,89 @@
     }
     .share-hint { font-size: 12px; color: #666; margin-top: 10px; }
     .copy-feedback { font-size: 12px; color: #2c7be5; margin-top: 6px; min-height: 14px; }
+
+    /* Secciones del toolbar */
+    .toolbar-section { margin-bottom: 14px; }
+    .toolbar-section h2 {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #888;
+      margin-bottom: 6px;
+      padding-left: 2px;
+    }
+
+    /* Estado de conexión */
+    #connectionStatus {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #555;
+      margin-bottom: 14px;
+      padding: 6px 8px;
+      background: white;
+      border-radius: 5px;
+    }
+    #connectionStatus .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #4CAF50;
+      flex-shrink: 0;
+      transition: background 0.2s;
+    }
+    #connectionStatus.offline .dot { background: #e74c3c; }
+
+    /* Presencia con color por usuario */
+    #presenceList { list-style: none; }
+    #presenceList li { padding: 4px 0; display: flex; align-items: center; gap: 6px; }
+    #presenceList li .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+    #presenceList li .you-tag { color: #999; font-size: 11px; }
+
+    /* Estado de guardado */
+    #saveStatus { font-size: 12px; color: #888; margin-top: 6px; min-height: 14px; }
+
+    /* Indicador de edición en vivo sobre un elemento del diagrama */
+    #diagram { position: relative; }
+    .editing-badge {
+      position: absolute;
+      z-index: 500;
+      transform: translateY(-100%);
+      padding: 3px 8px;
+      border-radius: 10px;
+      font-size: 11px;
+      color: white;
+      white-space: nowrap;
+      pointer-events: none;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+
+    /* Cursor en modo selección de relación */
+    #diagram.relation-mode .joint-element { cursor: crosshair; }
+
+    /* Toasts */
+    #toastContainer {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 3000;
+    }
+    .toast {
+      background: #2f3640;
+      color: white;
+      padding: 10px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 0.2s, transform 0.2s;
+    }
+    .toast.visible { opacity: 1; transform: translateY(0); }
   </style>
 </head>
 <body>
@@ -133,16 +216,24 @@
       <a class="back" href="/diagrams">&larr; Mis diagramas</a>
       <h1><%= diagramName %></h1>
 
+      <div id="connectionStatus"><span class="dot"></span><span id="connectionStatusText">Conectando…</span></div>
+
       <button id="shareRoomBtn" class="share">🔗 Compartir sala</button>
 
-      <button id="addUserClass">Agregar Clase</button>
+      <div class="toolbar-section">
+        <h2>Elementos</h2>
+        <button id="addUserClass">+ Agregar Clase</button>
+      </div>
 
-      <button id="addAssociation">Asociación</button>
-      <button id="addDependency">Dependencia</button>
-      <button id="addAggregation">Agregación</button>
-      <button id="addComposition">Composición</button>
-      <button id="addInheritance">Herencia</button>
-      <button id="addRealization">Realización</button>
+      <div class="toolbar-section">
+        <h2>Relaciones</h2>
+        <button id="addAssociation">Asociación</button>
+        <button id="addDependency">Dependencia</button>
+        <button id="addAggregation">Agregación</button>
+        <button id="addComposition">Composición</button>
+        <button id="addInheritance">Herencia</button>
+        <button id="addRealization">Realización</button>
+      </div>
 
       <div class="panel">
         <h2>Conectados</h2>
@@ -152,11 +243,14 @@
       <div class="panel">
         <h2>Estado</h2>
         <div id="selectionInfo">Selecciona el tipo de relación y luego el origen y destino.</div>
+        <div id="saveStatus"></div>
       </div>
     </div>
 
     <div id="diagram"></div>
   </div>
+
+  <div id="toastContainer"></div>
 
   <!-- Menú contextual -->
   <div id="contextMenu">
@@ -262,6 +356,7 @@
   <script>
     window.ROOM = {
       shareToken: <%- JSON.stringify(shareToken) %>,
+      userId: <%- JSON.stringify(userId) %>,
       userName: <%- JSON.stringify(userName) %>,
       initialGraph: <%- JSON.stringify(graphData) %>
     };

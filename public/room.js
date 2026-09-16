@@ -20,6 +20,31 @@ $(document).ready(function () {
     return prefix + "_" + Math.random().toString(36).substr(2, 9);
   }
 
+  // ---------- Color determinístico por usuario (mismo color en todos los clientes) ----------
+
+  const USER_COLORS = ["#e74c3c", "#2980b9", "#8e44ad", "#16a085", "#d35400", "#c0392b", "#2c3e50", "#27ae60"];
+
+  function colorForUser(userId) {
+    const key = String(userId || "0");
+    let hash = 0;
+    for (let i = 0; i < key.length; i++) {
+      hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
+    }
+    return USER_COLORS[hash % USER_COLORS.length];
+  }
+
+  // ---------- Toasts ----------
+
+  function showToast(message) {
+    const $toast = $("<div>").addClass("toast").text(message);
+    $("#toastContainer").append($toast);
+    requestAnimationFrame(() => $toast.addClass("visible"));
+    setTimeout(() => {
+      $toast.removeClass("visible");
+      setTimeout(() => $toast.remove(), 250);
+    }, 3200);
+  }
+
   const STEREOTYPE_LABEL = {
     interface: "«interface»",
     abstract: "«abstract»",
@@ -87,6 +112,8 @@ $(document).ready(function () {
     }
     if (patch.position !== undefined) {
       cell.position(patch.position.x, patch.position.y);
+      const entry = activeEditingBadges[cell.id];
+      if (entry) positionEditingBadge(entry.$badge, cell);
     }
   }
 
@@ -146,28 +173,121 @@ $(document).ready(function () {
 
   // ---------- Presencia y actividad ----------
 
+  let previousUserIds = null;
+
   function renderPresence(users) {
     const $list = $("#presenceList");
     $list.empty();
-    users.forEach((u) => $list.append($("<li>").text(u.userName)));
+    users.forEach((u) => {
+      const $dot = $("<span>").addClass("dot").css("background", colorForUser(u.userId));
+      const $li = $("<li>").append($dot).append(document.createTextNode(u.userName));
+      if (u.userId === ROOM.userId) {
+        $li.append($("<span>").addClass("you-tag").text(" (tú)"));
+      }
+      $list.append($li);
+    });
+
+    if (previousUserIds !== null) {
+      const currentIds = users.map((u) => u.userId);
+      users.forEach((u) => {
+        if (u.userId !== ROOM.userId && !previousUserIds.includes(u.userId)) {
+          showToast(u.userName + " se unió a la sala");
+        }
+      });
+      previousUserIds
+        .filter((id) => id !== ROOM.userId && !currentIds.includes(id))
+        .forEach(() => showToast("Un colaborador salió de la sala"));
+      previousUserIds = currentIds;
+    } else {
+      previousUserIds = users.map((u) => u.userId);
+    }
   }
 
   function showLastEditor(elementId, userName) {
     const cellView = paper.findViewByModel(elementId);
     if (!cellView) return;
-    cellView.el.setAttribute("title", "Editado por " + userName);
+    cellView.el.setAttribute("title", "Editado por última vez por " + userName);
+  }
+
+  // ---------- Indicador en vivo de "usuario editando/moviendo" ----------
+
+  const activeEditingBadges = {}; // elementId -> { $badge, userId }
+
+  function positionEditingBadge($badge, cell) {
+    const pos = cell.position();
+    $badge.css({ left: pos.x + "px", top: pos.y - 4 + "px" });
+  }
+
+  function showEditingBadge(elementId, userId, userName) {
+    const cell = graph.getCell(elementId);
+    if (!cell) return;
+    const color = colorForUser(userId);
+
+    // Resalta el borde de la clase con el color del usuario que la está tocando.
+    cell.attr(".uml-class-name-rect/stroke", color);
+    cell.attr(".uml-class-name-rect/stroke-width", 2.5);
+
+    let entry = activeEditingBadges[elementId];
+    if (!entry) {
+      const $badge = $("<div>").addClass("editing-badge").appendTo("#diagram");
+      entry = activeEditingBadges[elementId] = { $badge, userId };
+    }
+    entry.userId = userId;
+    entry.$badge.css("background", color).text("✏️ " + userName);
+    positionEditingBadge(entry.$badge, cell);
+  }
+
+  function hideEditingBadge(elementId) {
+    const entry = activeEditingBadges[elementId];
+    if (entry) {
+      entry.$badge.remove();
+      delete activeEditingBadges[elementId];
+    }
+    const cell = graph.getCell(elementId);
+    if (cell) {
+      cell.attr(".uml-class-name-rect/stroke", "#000000");
+      cell.attr(".uml-class-name-rect/stroke-width", 1);
+    }
+  }
+
+  paper.on("element:pointermove", (elementView) => {
+    const entry = activeEditingBadges[elementView.model.id];
+    if (entry && entry.userId === ROOM.userId) {
+      positionEditingBadge(entry.$badge, elementView.model);
+    }
+  });
+
+  // ---------- Estado de guardado ----------
+
+  function setSaveStatus(text) {
+    $("#saveStatus").text(text);
+  }
+
+  // ---------- Estado de conexión ----------
+
+  function setConnectionStatus(connected) {
+    $("#connectionStatus").toggleClass("offline", !connected);
+    $("#connectionStatusText").text(connected ? "Conectado" : "Reconectando…");
   }
 
   // ---------- Socket: eventos entrantes ----------
 
   socket.on("connect", () => {
+    setConnectionStatus(true);
     socket.emit("room:join", { shareToken: ROOM.shareToken });
   });
+
+  socket.on("disconnect", () => setConnectionStatus(false));
+  socket.io.on("reconnect_attempt", () => setConnectionStatus(false));
 
   socket.on("room:state", (data) => {
     renderPresence(data.users || []);
     Object.keys(data.lastEditors || {}).forEach((elementId) => {
       showLastEditor(elementId, data.lastEditors[elementId].userName);
+    });
+    Object.keys(data.activeEditors || {}).forEach((elementId) => {
+      const editor = data.activeEditors[elementId];
+      showEditingBadge(elementId, editor.userId, editor.userName);
     });
   });
 
@@ -175,8 +295,11 @@ $(document).ready(function () {
 
   socket.on("activity:editor", (data) => showLastEditor(data.elementId, data.userName));
 
+  socket.on("element:editing:started", (data) => showEditingBadge(data.elementId, data.userId, data.userName));
+  socket.on("element:editing:ended", (data) => hideEditingBadge(data.elementId));
+
   socket.on("error:validation", (data) => {
-    alert("Error: " + data.message);
+    showToast("⚠ " + data.message);
   });
 
   socket.on("class:added", (data) => {
@@ -202,6 +325,7 @@ $(document).ready(function () {
       cell.remove();
       applyingRemote = false;
     }
+    hideEditingBadge(data.elementId);
   });
 
   socket.on("link:added", (data) => {
@@ -232,7 +356,10 @@ $(document).ready(function () {
   // ---------- Autosave con debounce ----------
 
   const scheduleSave = _.debounce(() => {
-    socket.emit("graph:save", { graphJson: graph.toJSON() });
+    setSaveStatus("Guardando…");
+    socket.emit("graph:save", { graphJson: graph.toJSON() }, (res) => {
+      setSaveStatus(res && res.ok ? "Guardado ✓" : "Error al guardar");
+    });
   }, 1500);
 
   graph.on("add remove change", () => {
@@ -258,13 +385,38 @@ $(document).ready(function () {
 
   function openModal(id) {
     $("#" + id).addClass("visible");
+    $("#" + id).find("input, textarea, select").first().trigger("focus");
   }
   function closeModal(id) {
     $("#" + id).removeClass("visible");
   }
+  function currentlyOpenModal() {
+    const $open = $(".modal-overlay.visible");
+    return $open.length ? $open.attr("id") : null;
+  }
+
   $(document).on("click", "[data-close]", function () {
     closeModal($(this).data("close"));
   });
+
+  // Cerrar al hacer click fuera de la caja del modal
+  $(".modal-overlay").on("click", function (evt) {
+    if (evt.target === this) closeModal(this.id);
+  });
+
+  // Cerrar con ESC
+  $(document).on("keydown", function (evt) {
+    if (evt.key === "Escape") {
+      const openId = currentlyOpenModal();
+      if (openId) closeModal(openId);
+    }
+  });
+
+  // Avisa a los demás que se dejó de editar el elemento (al guardar o cancelar el modal).
+  function notifyEditingEndForClicked() {
+    if (clickedElement) socket.emit("element:editing:end", { elementId: clickedElement.id });
+  }
+  $(document).on("click", "#modalClass [data-close], #modalClass .save, #modalAttributes [data-close], #modalAttributes .save, #modalMethods [data-close], #modalMethods .save", notifyEditingEndForClicked);
 
   // ---------- Modal: nombre / estereotipo de clase ----------
 
@@ -273,6 +425,7 @@ $(document).ready(function () {
     $("#classNameInput").val(clickedElement.get("umlName"));
     $("#classStereotypeInput").val(clickedElement.get("umlStereotype"));
     $("#classError").text("");
+    socket.emit("element:editing:start", { elementId: clickedElement.id });
     openModal("modalClass");
   });
 
@@ -295,6 +448,7 @@ $(document).ready(function () {
     $("#contextMenu").hide();
     $("#attributesInput").val((clickedElement.get("umlAttributes") || []).join("\n"));
     $("#attributesError").text("");
+    socket.emit("element:editing:start", { elementId: clickedElement.id });
     openModal("modalAttributes");
   });
 
@@ -316,6 +470,7 @@ $(document).ready(function () {
     $("#contextMenu").hide();
     $("#methodsInput").val((clickedElement.get("umlMethods") || []).join("\n"));
     $("#methodsError").text("");
+    socket.emit("element:editing:start", { elementId: clickedElement.id });
     openModal("modalMethods");
   });
 
@@ -384,11 +539,19 @@ $(document).ready(function () {
     socket.emit("class:add", data);
   });
 
-  // ---------- Sincronizar posición al soltar el arrastre ----------
+  // ---------- Notificar "moviendo" mientras se arrastra una clase ----------
+
+  paper.on("element:pointerdown", function (elementView) {
+    if (currentRelationType) return; // ese caso lo maneja el flujo de selección de relación
+    socket.emit("element:editing:start", { elementId: elementView.model.id });
+  });
 
   paper.on("element:pointerup", function (elementView) {
     const cell = elementView.model;
-    socket.emit("class:update", { elementId: cell.id, patch: { position: cell.position() } });
+    if (!currentRelationType) {
+      socket.emit("class:update", { elementId: cell.id, patch: { position: cell.position() } });
+      socket.emit("element:editing:end", { elementId: cell.id });
+    }
   });
 
   // ---------- Relaciones ----------
@@ -419,6 +582,7 @@ $(document).ready(function () {
     selectedTarget = null;
     resetClassBorders();
     updateSelectionInfo();
+    $("#diagram").addClass("relation-mode");
   }
 
   paper.on("element:pointerdown", (cellView) => {
@@ -439,6 +603,7 @@ $(document).ready(function () {
       selectedSource = null;
       selectedTarget = null;
       currentRelationType = null;
+      $("#diagram").removeClass("relation-mode");
 
       $("#sourceMultiplicityInput").val("");
       $("#targetMultiplicityInput").val("");

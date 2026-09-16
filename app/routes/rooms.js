@@ -37,6 +37,7 @@ router.get('/room/:token', requireAuth, async (req, res) => {
       diagramId: diagram.id,
       diagramName: diagram.name,
       shareToken: diagram.share_token,
+      userId: req.session.userId,
       userName: req.session.userName,
       graphData: diagram.graph_data,
     });

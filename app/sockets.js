@@ -5,6 +5,9 @@ const validators = require('../public/uml-validators');
 // Presencia en memoria: shareToken -> Map<socketId, {userId, userName}>
 const presenceByRoom = new Map();
 
+// Edición en vivo en memoria: shareToken -> Map<elementId, {userId, userName, socketId}>
+const editingByRoom = new Map();
+
 function roomName(shareToken) {
   return 'diagram:' + shareToken;
 }
@@ -13,6 +16,16 @@ function getPresenceList(shareToken) {
   const room = presenceByRoom.get(shareToken);
   if (!room) return [];
   return Array.from(room.values());
+}
+
+function getActiveEditors(shareToken) {
+  const room = editingByRoom.get(shareToken);
+  if (!room) return {};
+  const result = {};
+  room.forEach((value, elementId) => {
+    result[elementId] = { userId: value.userId, userName: value.userName };
+  });
+  return result;
 }
 
 function validateClassPayload(data) {
@@ -75,6 +88,7 @@ function attachSockets(io, sessionMiddleware) {
           graphJson: diagram.graph_data,
           users: getPresenceList(shareToken),
           lastEditors,
+          activeEditors: getActiveEditors(shareToken),
         });
 
         io.to(roomName(shareToken)).emit('presence:update', {
@@ -167,13 +181,31 @@ function attachSockets(io, sessionMiddleware) {
       recordActivity('link:remove', data.linkId, null, data);
     });
 
-    socket.on('graph:save', async ({ graphJson }) => {
+    socket.on('graph:save', async ({ graphJson }, ack) => {
       if (!currentDiagramId || !graphJson) return;
       try {
         await diagramsRepository.updateGraphData(currentDiagramId, graphJson);
+        if (typeof ack === 'function') ack({ ok: true });
       } catch (err) {
         console.error(err.message);
+        if (typeof ack === 'function') ack({ ok: false });
       }
+    });
+
+    socket.on('element:editing:start', ({ elementId }) => {
+      if (!currentShareToken || !elementId) return;
+      if (!editingByRoom.has(currentShareToken)) {
+        editingByRoom.set(currentShareToken, new Map());
+      }
+      editingByRoom.get(currentShareToken).set(elementId, { userId, userName, socketId: socket.id });
+      socket.to(roomName(currentShareToken)).emit('element:editing:started', { elementId, userId, userName });
+    });
+
+    socket.on('element:editing:end', ({ elementId }) => {
+      if (!currentShareToken || !elementId) return;
+      const room = editingByRoom.get(currentShareToken);
+      if (room) room.delete(elementId);
+      socket.to(roomName(currentShareToken)).emit('element:editing:ended', { elementId, userId, userName });
     });
 
     socket.on('disconnect', () => {
@@ -188,6 +220,16 @@ function attachSockets(io, sessionMiddleware) {
       io.to(roomName(currentShareToken)).emit('presence:update', {
         users: getPresenceList(currentShareToken),
       });
+
+      const editingRoom = editingByRoom.get(currentShareToken);
+      if (editingRoom) {
+        editingRoom.forEach((editor, elementId) => {
+          if (editor.socketId === socket.id) {
+            editingRoom.delete(elementId);
+            io.to(roomName(currentShareToken)).emit('element:editing:ended', { elementId, userId, userName });
+          }
+        });
+      }
     });
   });
 }
