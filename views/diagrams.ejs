@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mis Diagramas</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f0f2f5;
+      padding: 40px;
+    }
+    .container { max-width: 700px; margin: 0 auto; }
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    h1 { font-size: 22px; }
+    a.logout { color: #666; text-decoration: none; font-size: 14px; }
+    form.create { display: flex; gap: 10px; margin-bottom: 30px; }
+    form.create input {
+      flex-grow: 1;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+    }
+    form.create button, .diagram-item a.enter {
+      padding: 10px 20px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      text-decoration: none;
+      font-size: 14px;
+    }
+    ul { list-style: none; }
+    .diagram-item {
+      background: white;
+      padding: 15px 20px;
+      border-radius: 6px;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .diagram-item .meta { font-size: 12px; color: #888; }
+    .diagram-item .actions { display: flex; gap: 8px; align-items: center; }
+    .diagram-item input.share-link {
+      width: 220px;
+      font-size: 12px;
+      padding: 6px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Mis Diagramas UML</h1>
+      <a class="logout" href="/logout">Cerrar sesión (<%= userName %>)</a>
+    </header>
+
+    <form class="create" action="/diagrams" method="POST">
+      <input type="text" name="name" placeholder="Nombre del nuevo diagrama" required>
+      <button type="submit">Crear sala</button>
+    </form>
+
+    <ul>
+      <% diagrams.forEach(function(d) { %>
+        <li class="diagram-item">
+          <div>
+            <strong><%= d.name %></strong>
+            <div class="meta"><%= d.is_owner ? 'Propietario' : 'Colaborador' %> · actualizado <%= new Date(d.updated_at).toLocaleString() %></div>
+          </div>
+          <div class="actions">
+            <input class="share-link" type="text" readonly value="/room/<%= d.share_token %>" onclick="this.select()">
+            <a class="enter" href="/room/<%= d.share_token %>">Entrar</a>
+          </div>
+        </li>
+      <% }); %>
+      <% if (diagrams.length === 0) { %>
+        <p>Todavía no tienes diagramas. Crea uno arriba.</p>
+      <% } %>
+    </ul>
+  </div>
+</body>
+</html>

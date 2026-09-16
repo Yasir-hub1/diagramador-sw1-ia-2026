@@ -1,8 +1,16 @@
 // index.js
+const http = require('http');
 const express = require('express');
+const { Server } = require('socket.io');
 const pool = require('./db');
 const bcrypt = require('bcrypt');
+const sessionMiddleware = require('./session');
+const roomsRouter = require('./routes/rooms');
+const attachSockets = require('./sockets');
+
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
 
 // Configurar EJS como motor de vistas
 app.set('view engine', 'ejs');
@@ -13,6 +21,9 @@ app.use(express.static('public'));
 // Middleware para manejar JSON y formularios
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Sesión (compartida con Socket.IO, ver app/sockets.js)
+app.use(sessionMiddleware);
 
 // Ruta para mostrar la vista de registro
 app.get('/register', (req, res) => {
@@ -45,7 +56,9 @@ app.post('/login', async (req, res) => {
     if (user.rows.length > 0) {
       const validPassword = await bcrypt.compare(password, user.rows[0].password);
       if (validPassword) {
-        res.redirect('/home'); // Redirigir a la vista principal si el login es exitoso
+        req.session.userId = user.rows[0].id;
+        req.session.userName = user.rows[0].name;
+        req.session.save(() => res.redirect('/diagrams'));
       } else {
         res.status(401).send('Credenciales incorrectas');
       }
@@ -58,13 +71,19 @@ app.post('/login', async (req, res) => {
   }
 });
 
-// Ruta de home (después de login exitoso)
-app.get('/home', (req, res) => {
-  res.render('home');
+// Ruta para cerrar sesión
+app.get('/logout', (req, res) => {
+  req.session.destroy(() => res.redirect('/login'));
 });
 
-// Servidor en el puerto 3000
+// Rutas de diagramas / salas colaborativas
+app.use('/', roomsRouter);
+
+// Sockets de colaboración en tiempo real
+attachSockets(io, sessionMiddleware);
+
+// Servidor en el puerto 3001
 const PORT = 3001;
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Servidor corriendo en el puerto ${PORT}`);
 });
