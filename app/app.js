@@ -26,6 +26,18 @@ app.use(express.urlencoded({ extended: true }));
 // Sesión (compartida con Socket.IO, ver app/sockets.js)
 app.use(sessionMiddleware);
 
+// Flash one-shot para toasts en las vistas (errores de auth / DB)
+app.use((req, res, next) => {
+  res.locals.flash = req.session.flash || null;
+  delete req.session.flash;
+  next();
+});
+
+function flashRedirect(req, res, path, type, message) {
+  req.session.flash = { type, message };
+  req.session.save(() => res.redirect(path));
+}
+
 // Ruta para mostrar la vista de registro
 app.get('/register', (req, res) => {
   res.render('register');
@@ -34,13 +46,28 @@ app.get('/register', (req, res) => {
 // Ruta para manejar el registro de usuario
 app.post('/register', async (req, res) => {
   try {
-    const { name, email, password } = req.body;
-    const hashedPassword = await bcrypt.hash(password, 10); // Hash de la contraseña
+    const name = (req.body.name || '').trim();
+    const email = (req.body.email || '').trim();
+    const password = req.body.password || '';
+    if (!name || !email || !password) {
+      return flashRedirect(req, res, '/register', 'warning', 'Completa todos los campos para registrarte.');
+    }
+    if (password.length < 6) {
+      return flashRedirect(req, res, '/register', 'warning', 'La contraseña debe tener al menos 6 caracteres.');
+    }
+    const hashedPassword = await bcrypt.hash(password, 10);
     await pool.query('INSERT INTO users (name, email, password) VALUES ($1, $2, $3)', [name, email, hashedPassword]);
-    res.redirect('/login'); // Redirigir al login después del registro exitoso
+    flashRedirect(req, res, '/login', 'success', 'Cuenta creada. Ya puedes iniciar sesión.');
   } catch (err) {
     console.error(err.message);
-    res.status(500).send('Error al registrar el usuario');
+    const duplicate = err.code === '23505';
+    flashRedirect(
+      req,
+      res,
+      '/register',
+      'error',
+      duplicate ? 'Ese correo ya está registrado.' : 'No se pudo registrar. Intenta de nuevo.'
+    );
   }
 });
 
@@ -52,7 +79,11 @@ app.get('/login', (req, res) => {
 // Ruta para manejar el inicio de sesión
 app.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const email = (req.body.email || '').trim();
+    const password = req.body.password || '';
+    if (!email || !password) {
+      return flashRedirect(req, res, '/login', 'warning', 'Ingresa correo y contraseña.');
+    }
     const user = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
     if (user.rows.length > 0) {
       const validPassword = await bcrypt.compare(password, user.rows[0].password);
@@ -61,14 +92,14 @@ app.post('/login', async (req, res) => {
         req.session.userName = user.rows[0].name;
         req.session.save(() => res.redirect('/diagrams'));
       } else {
-        res.status(401).send('Credenciales incorrectas');
+        flashRedirect(req, res, '/login', 'error', 'Credenciales incorrectas.');
       }
     } else {
-      res.status(401).send('Usuario no encontrado');
+      flashRedirect(req, res, '/login', 'error', 'No encontramos una cuenta con ese correo.');
     }
   } catch (err) {
     console.error(err.message);
-    res.status(500).send('Error al iniciar sesión');
+    flashRedirect(req, res, '/login', 'error', 'Error al iniciar sesión. Revisa la conexión con la base de datos.');
   }
 });
 

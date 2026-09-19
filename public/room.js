@@ -24,6 +24,47 @@ $(document).ready(function () {
     return prefix + "_" + Math.random().toString(36).substr(2, 9);
   }
 
+  // ---------- Lienzo responsive ----------
+
+  function resizePaperToViewport() {
+    const el = document.getElementById("diagram");
+    if (!el) return;
+    const pad = 400;
+    let maxX = el.clientWidth;
+    let maxY = el.clientHeight;
+    graph.getElements().forEach((cell) => {
+      const pos = cell.position();
+      const size = cell.size();
+      maxX = Math.max(maxX, pos.x + size.width + pad);
+      maxY = Math.max(maxY, pos.y + size.height + pad);
+    });
+    paper.setDimensions(Math.max(maxX, 1200), Math.max(maxY, 900));
+  }
+
+  resizePaperToViewport();
+  $(window).on("resize", _.debounce(resizePaperToViewport, 150));
+
+  // ---------- Toolbar móvil ----------
+
+  function setToolbarOpen(open) {
+    $("body").toggleClass("toolbar-open", open);
+    $("#toolbarBackdrop").toggleClass("is-open", open).prop("hidden", !open);
+    $("#toolbarToggle").attr("aria-expanded", open ? "true" : "false");
+    $("#toolbarToggle").attr("aria-label", open ? "Cerrar herramientas" : "Abrir herramientas");
+  }
+
+  $("#toolbarToggle").on("click", function () {
+    setToolbarOpen(!$("body").hasClass("toolbar-open"));
+  });
+  $("#toolbarBackdrop").on("click", function () {
+    setToolbarOpen(false);
+  });
+  $("#roomToolbar").on("click", "button, a.tool-link", function () {
+    if (window.matchMedia("(max-width: 900px)").matches) {
+      setToolbarOpen(false);
+    }
+  });
+
   // ---------- Color determinístico por usuario (mismo color en todos los clientes) ----------
 
   const USER_COLORS = ["#e74c3c", "#2980b9", "#8e44ad", "#16a085", "#d35400", "#c0392b", "#2c3e50", "#27ae60"];
@@ -39,14 +80,14 @@ $(document).ready(function () {
 
   // ---------- Toasts ----------
 
-  function showToast(message) {
-    const $toast = $("<div>").addClass("toast").text(message);
+  function showToast(message, type) {
+    if (window.Toast && typeof window.Toast.show === "function") {
+      window.Toast.show(message, type || "info");
+      return;
+    }
+    const $toast = $("<div>").addClass("toast toast--" + (type || "info") + " is-visible").text(message);
     $("#toastContainer").append($toast);
-    requestAnimationFrame(() => $toast.addClass("visible"));
-    setTimeout(() => {
-      $toast.removeClass("visible");
-      setTimeout(() => $toast.remove(), 250);
-    }, 3200);
+    setTimeout(() => $toast.remove(), 3200);
   }
 
   const STEREOTYPE_LABEL = {
@@ -195,12 +236,12 @@ $(document).ready(function () {
       const currentIds = users.map((u) => u.userId);
       users.forEach((u) => {
         if (u.userId !== ROOM.userId && !previousUserIds.includes(u.userId)) {
-          showToast(u.userName + " se unió a la sala");
+          showToast(u.userName + " se unió a la sala", "info");
         }
       });
       previousUserIds
         .filter((id) => id !== ROOM.userId && !currentIds.includes(id))
-        .forEach(() => showToast("Un colaborador salió de la sala"));
+        .forEach(() => showToast("Un colaborador salió de la sala", "info"));
       previousUserIds = currentIds;
     } else {
       previousUserIds = users.map((u) => u.userId);
@@ -276,13 +317,33 @@ $(document).ready(function () {
 
   // ---------- Socket: eventos entrantes ----------
 
-  socket.on("connect", () => {
-    setConnectionStatus(true);
-    socket.emit("room:join", { shareToken: ROOM.shareToken });
+  let disconnectNotified = false;
+  socket.on("disconnect", () => {
+    setConnectionStatus(false);
+    if (!disconnectNotified) {
+      disconnectNotified = true;
+      showToast("Conexión perdida. Reconectando…", "warning");
+    }
+  });
+  socket.io.on("reconnect_attempt", () => setConnectionStatus(false));
+
+  let connectErrorNotified = false;
+  socket.on("connect_error", () => {
+    setConnectionStatus(false);
+    if (!connectErrorNotified) {
+      connectErrorNotified = true;
+      showToast("No se pudo conectar al servidor.", "error");
+    }
   });
 
-  socket.on("disconnect", () => setConnectionStatus(false));
-  socket.io.on("reconnect_attempt", () => setConnectionStatus(false));
+  socket.on("connect", () => {
+    const wasOffline = disconnectNotified || connectErrorNotified;
+    disconnectNotified = false;
+    connectErrorNotified = false;
+    setConnectionStatus(true);
+    socket.emit("room:join", { shareToken: ROOM.shareToken });
+    if (wasOffline) showToast("Conexión restaurada", "success");
+  });
 
   socket.on("room:state", (data) => {
     renderPresence(data.users || []);
@@ -303,7 +364,7 @@ $(document).ready(function () {
   socket.on("element:editing:ended", (data) => hideEditingBadge(data.elementId));
 
   socket.on("error:validation", (data) => {
-    showToast("⚠ " + data.message);
+    showToast(data.message || "Operación no válida", "error");
   });
 
   socket.on("class:added", (data) => {
@@ -362,13 +423,19 @@ $(document).ready(function () {
   const scheduleSave = _.debounce(() => {
     setSaveStatus("Guardando…");
     socket.emit("graph:save", { graphJson: graph.toJSON() }, (res) => {
-      setSaveStatus(res && res.ok ? "Guardado ✓" : "Error al guardar");
+      if (res && res.ok) {
+        setSaveStatus("Guardado");
+      } else {
+        setSaveStatus("Error al guardar");
+        showToast(res && res.message ? res.message : "No se pudo guardar el diagrama en la base de datos.", "error");
+      }
     });
   }, 1500);
 
   graph.on("add remove change", () => {
     if (applyingRemote) return;
     scheduleSave();
+    resizePaperToViewport();
   });
 
   // ---------- Menú contextual ----------
@@ -438,6 +505,7 @@ $(document).ready(function () {
     const stereotype = $("#classStereotypeInput").val();
     if (!name) {
       $("#classError").text("El nombre no puede estar vacío.");
+      showToast("El nombre de la clase no puede estar vacío.", "warning");
       return;
     }
     const patch = { name, stereotype };
@@ -460,7 +528,9 @@ $(document).ready(function () {
     const lines = $("#attributesInput").val().split("\n").map((l) => l.trim()).filter(Boolean);
     const invalid = lines.filter((l) => !V.validateAttribute(l));
     if (invalid.length) {
-      $("#attributesError").text('Formato inválido: "' + invalid[0] + '". Usa: + nombre: tipo');
+      const msg = 'Formato inválido: "' + invalid[0] + '". Usa: + nombre: tipo';
+      $("#attributesError").text(msg);
+      showToast(msg, "warning");
       return;
     }
     applyClassPatch(clickedElement, { attributes: lines });
@@ -482,7 +552,9 @@ $(document).ready(function () {
     const lines = $("#methodsInput").val().split("\n").map((l) => l.trim()).filter(Boolean);
     const invalid = lines.filter((l) => !V.validateMethod(l));
     if (invalid.length) {
-      $("#methodsError").text('Formato inválido: "' + invalid[0] + '". Usa: + nombre(params): tipoRetorno');
+      const msg = 'Formato inválido: "' + invalid[0] + '". Usa: + nombre(params): tipoRetorno';
+      $("#methodsError").text(msg);
+      showToast(msg, "warning");
       return;
     }
     applyClassPatch(clickedElement, { methods: lines });
@@ -503,12 +575,14 @@ $(document).ready(function () {
 
   // ---------- Compartir sala ----------
 
-  $("#shareRoomBtn").on("click", function () {
+  function openShareModal() {
     const link = window.location.origin + "/room/" + ROOM.shareToken;
     $("#shareLinkInput").val(link);
     $("#shareCopyFeedback").text("");
     openModal("modalShare");
-  });
+  }
+
+  $("#shareRoomBtn, #shareRoomBtnMobile").on("click", openShareModal);
 
   $("#copyShareLinkBtn").on("click", function () {
     const $input = $("#shareLinkInput");
@@ -524,13 +598,23 @@ $(document).ready(function () {
       }
     }
 
+    function onCopied(ok) {
+      if (ok) {
+        $("#shareCopyFeedback").text("Enlace copiado");
+        showToast("Enlace de la sala copiado", "success");
+      } else {
+        $("#shareCopyFeedback").text("No se pudo copiar, selecciónalo manualmente.");
+        showToast("No se pudo copiar el enlace", "warning");
+      }
+    }
+
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText($input.val()).then(
-        () => $("#shareCopyFeedback").text("¡Enlace copiado!"),
-        () => $("#shareCopyFeedback").text(fallbackCopy() ? "¡Enlace copiado!" : "No se pudo copiar, selecciónalo manualmente.")
+        () => onCopied(true),
+        () => onCopied(fallbackCopy())
       );
     } else {
-      $("#shareCopyFeedback").text(fallbackCopy() ? "¡Enlace copiado!" : "No se pudo copiar, selecciónalo manualmente.");
+      onCopied(fallbackCopy());
     }
   });
 
@@ -622,10 +706,12 @@ $(document).ready(function () {
     const target = $("#targetMultiplicityInput").val().trim();
     if (source && !V.validateMultiplicity(source)) {
       $("#multiplicityError").text("Multiplicidad de origen inválida.");
+      showToast("Multiplicidad de origen inválida.", "warning");
       return;
     }
     if (target && !V.validateMultiplicity(target)) {
       $("#multiplicityError").text("Multiplicidad de destino inválida.");
+      showToast("Multiplicidad de destino inválida.", "warning");
       return;
     }
     const patch = { sourceMultiplicity: source, targetMultiplicity: target };

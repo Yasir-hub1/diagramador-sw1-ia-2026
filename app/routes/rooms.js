@@ -9,13 +9,22 @@ const { importFromXmi } = require('../xmi/importXmi');
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 const router = express.Router();
 
+function flashRedirect(req, res, path, type, message) {
+  req.session.flash = { type, message };
+  req.session.save(() => res.redirect(path));
+}
+
 router.get('/diagrams', requireAuth, async (req, res) => {
   try {
     const diagrams = await diagramsRepository.findAccessibleByUser(req.session.userId);
     res.render('diagrams', { diagrams, userName: req.session.userName });
   } catch (err) {
     console.error(err.message);
-    res.status(500).send('Error al cargar los diagramas');
+    res.status(500).render('diagrams', {
+      diagrams: [],
+      userName: req.session.userName,
+      flash: { type: 'error', message: 'No se pudieron cargar los diagramas. Revisa la conexión con la base de datos.' },
+    });
   }
 });
 
@@ -23,26 +32,28 @@ router.post('/diagrams', requireAuth, async (req, res) => {
   try {
     const name = (req.body.name || '').trim() || 'Diagrama sin título';
     const diagram = await diagramsRepository.create(name, req.session.userId);
-    res.redirect('/room/' + diagram.share_token);
+    req.session.flash = { type: 'success', message: 'Sala creada.' };
+    req.session.save(() => res.redirect('/room/' + diagram.share_token));
   } catch (err) {
     console.error(err.message);
-    res.status(500).send('Error al crear el diagrama');
+    flashRedirect(req, res, '/diagrams', 'error', 'No se pudo crear el diagrama.');
   }
 });
 
 router.post('/diagrams/import', requireAuth, upload.single('xmiFile'), async (req, res) => {
   if (!req.file) {
-    return res.status(400).send('No se recibió ningún archivo XMI');
+    return flashRedirect(req, res, '/diagrams', 'warning', 'Selecciona un archivo XMI para importar.');
   }
   try {
     const graphData = importFromXmi(req.file.buffer.toString('utf8'));
     const name = (req.body.name || '').trim() || req.file.originalname.replace(/\.[^.]+$/, '') || 'Diagrama importado';
     const diagram = await diagramsRepository.create(name, req.session.userId);
     await diagramsRepository.updateGraphData(diagram.id, graphData);
-    res.redirect('/room/' + diagram.share_token);
+    req.session.flash = { type: 'success', message: 'XMI importado correctamente.' };
+    req.session.save(() => res.redirect('/room/' + diagram.share_token));
   } catch (err) {
     console.error(err.message);
-    res.status(400).send('No se pudo importar el archivo XMI: ' + err.message);
+    flashRedirect(req, res, '/diagrams', 'error', 'No se pudo importar el XMI: ' + err.message);
   }
 });
 
@@ -50,7 +61,7 @@ router.get('/room/:token', requireAuth, async (req, res) => {
   try {
     const diagram = await diagramsRepository.findByToken(req.params.token);
     if (!diagram) {
-      return res.status(404).send('Sala no encontrada');
+      return flashRedirect(req, res, '/diagrams', 'error', 'Sala no encontrada.');
     }
     await diagramsRepository.upsertCollaborator(diagram.id, req.session.userId);
     res.render('room', {
@@ -63,7 +74,7 @@ router.get('/room/:token', requireAuth, async (req, res) => {
     });
   } catch (err) {
     console.error(err.message);
-    res.status(500).send('Error al abrir la sala');
+    flashRedirect(req, res, '/diagrams', 'error', 'No se pudo abrir la sala. Revisa la conexión con la base de datos.');
   }
 });
 
@@ -71,7 +82,7 @@ router.get('/room/:token/export.xmi', requireAuth, async (req, res) => {
   try {
     const diagram = await diagramsRepository.findByToken(req.params.token);
     if (!diagram) {
-      return res.status(404).send('Sala no encontrada');
+      return flashRedirect(req, res, '/diagrams', 'error', 'Sala no encontrada.');
     }
     const xml = exportToXmi(diagram.graph_data, diagram.name);
     const filename = (diagram.name || 'diagrama').replace(/[^\w\-]+/g, '_') + '.xmi';
@@ -80,7 +91,7 @@ router.get('/room/:token/export.xmi', requireAuth, async (req, res) => {
     res.send(xml);
   } catch (err) {
     console.error(err.message);
-    res.status(500).send('Error al exportar el diagrama');
+    flashRedirect(req, res, '/diagrams', 'error', 'No se pudo exportar el diagrama.');
   }
 });
 

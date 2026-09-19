@@ -65,7 +65,10 @@ $(document).ready(function () {
     waitingForAi = false;
     $("#aiSendBtn").prop("disabled", false).text("Enviar");
     if (data.reply) appendMessage("assistant", data.reply);
-    (data.skipped || []).forEach((reason) => appendMessage("system", "⚠ " + reason));
+    (data.skipped || []).forEach((reason) => {
+      appendMessage("system", reason);
+      if (window.Toast) window.Toast.warning(reason);
+    });
   });
 
   $("#aiSendBtn").on("click", function () {
@@ -112,6 +115,7 @@ $(document).ready(function () {
   function startRecording() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       appendMessage("system", "Tu navegador no soporta grabación de audio.");
+      if (window.Toast) window.Toast.warning("Tu navegador no soporta grabación de audio.");
       return;
     }
     navigator.mediaDevices
@@ -128,7 +132,9 @@ $(document).ready(function () {
           stream.getTracks().forEach((track) => track.stop());
           const durationMs = Date.now() - recordingStartedAt;
           if (durationMs < 400 || audioChunks.length === 0) {
-            appendMessage("system", "La grabación fue muy corta, intenta mantener presionado el micrófono un poco más.");
+            const msg = "La grabación fue muy corta. Mantén presionado el micrófono un poco más.";
+            appendMessage("system", msg);
+            if (window.Toast) window.Toast.warning(msg);
             return;
           }
           const actualType = mediaRecorder.mimeType || preferredType || "audio/webm";
@@ -138,7 +144,10 @@ $(document).ready(function () {
         mediaRecorder.start();
         $("#aiMicBtn").addClass("recording");
       })
-      .catch(() => appendMessage("system", "No se pudo acceder al micrófono."));
+      .catch(() => {
+        appendMessage("system", "No se pudo acceder al micrófono.");
+        if (window.Toast) window.Toast.error("No se pudo acceder al micrófono.");
+      });
   }
 
   function stopRecording() {
@@ -159,10 +168,15 @@ $(document).ready(function () {
         if (data.text) {
           sendInstruction(data.text);
         } else {
-          appendMessage("system", "No se pudo transcribir el audio: " + (data.error || "error desconocido"));
+          const msg = "No se pudo transcribir el audio: " + (data.error || "error desconocido");
+          appendMessage("system", msg);
+          if (window.Toast) window.Toast.error(msg);
         }
       })
-      .catch(() => appendMessage("system", "Error al transcribir el audio."));
+      .catch(() => {
+        appendMessage("system", "Error al transcribir el audio.");
+        if (window.Toast) window.Toast.error("Error al transcribir el audio.");
+      });
   }
 
   const $mic = $("#aiMicBtn");

@@ -145,7 +145,9 @@ function attachSockets(io, sessionMiddleware) {
         if (typeof ack === 'function') ack({ ok: true });
       } catch (err) {
         console.error(err.message);
-        if (typeof ack === 'function') ack({ ok: false });
+        if (typeof ack === 'function') {
+          ack({ ok: false, message: 'No se pudo guardar el diagrama en la base de datos.' });
+        }
       }
     });
 
