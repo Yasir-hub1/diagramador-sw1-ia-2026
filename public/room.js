@@ -101,6 +101,43 @@ $(document).ready(function () {
     return tag ? tag + "\n" + name : name;
   }
 
+  const CLASS_STROKE = "#1b4332";
+  const CLASS_STROKE_WIDTH = 1.5;
+  const CLASS_SOURCE_STROKE = "#a33d1e";
+  const CLASS_TARGET_STROKE = "#1f6f8f";
+
+  function classAttrs() {
+    return {
+      ".uml-class-name-rect": { fill: "#1b4332", stroke: CLASS_STROKE, "stroke-width": CLASS_STROKE_WIDTH, rx: 0, ry: 0 },
+      ".uml-class-attrs-rect": { fill: "#f4f7f5", stroke: CLASS_STROKE, "stroke-width": CLASS_STROKE_WIDTH, rx: 0, ry: 0 },
+      ".uml-class-methods-rect": { fill: "#ffffff", stroke: CLASS_STROKE, "stroke-width": CLASS_STROKE_WIDTH, rx: 0, ry: 0 },
+      ".uml-class-name-text": {
+        "font-family": "Figtree, sans-serif", "font-size": 15, "font-weight": "700",
+        fill: "#f4f7f5", "text-anchor": "middle", "ref-x": 0.5, "ref-y": 0.5, "y-alignment": "middle",
+      },
+      ".uml-class-attrs-text": {
+        "font-family": "JetBrains Mono, monospace", "font-size": 12, fill: "#13211c",
+        "text-anchor": "start", "ref-x": 12, "ref-y": 6,
+      },
+      ".uml-class-methods-text": {
+        "font-family": "JetBrains Mono, monospace", "font-size": 12, fill: "#13211c",
+        "text-anchor": "start", "ref-x": 12, "ref-y": 6,
+      },
+    };
+  }
+
+  function paintClassElement(cell) {
+    if (!cell || !cell.isElement || !cell.isElement()) return;
+    if (!cell.attr(".uml-class-name-rect")) return;
+    cell.attr(classAttrs());
+  }
+
+  function restoreClassStroke(cell) {
+    if (!cell) return;
+    cell.attr(".uml-class-name-rect/stroke", CLASS_STROKE);
+    cell.attr(".uml-class-name-rect/stroke-width", CLASS_STROKE_WIDTH);
+  }
+
   // ---------- Creación de elementos (sin emitir al servidor) ----------
 
   function createClassElement({ elementId, name, stereotype, attributes, methods, position }) {
@@ -111,23 +148,7 @@ $(document).ready(function () {
       name: classDisplayName(name, stereotype || "none"),
       attributes: attributes || [],
       methods: methods || [],
-      attrs: {
-        ".uml-class-name-rect": { fill: "#FFFFE0", stroke: "#000000", "stroke-width": 1, rx: 0, ry: 0 },
-        ".uml-class-attrs-rect": { fill: "#FFFFE0", stroke: "#000000", "stroke-width": 1, rx: 0, ry: 0 },
-        ".uml-class-methods-rect": { fill: "#FFFFE0", stroke: "#000000", "stroke-width": 1, rx: 0, ry: 0 },
-        ".uml-class-name-text": {
-          "font-family": "Arial", "font-size": 14, "font-weight": "bold",
-          fill: "#000000", "text-anchor": "middle", "ref-x": 0.5, "ref-y": 0.5, "y-alignment": "middle",
-        },
-        ".uml-class-attrs-text": {
-          "font-family": "Arial", "font-size": 12, fill: "#000000",
-          "text-anchor": "start", "ref-x": 10, "ref-y": 5,
-        },
-        ".uml-class-methods-text": {
-          "font-family": "Arial", "font-size": 12, fill: "#000000",
-          "text-anchor": "start", "ref-x": 10, "ref-y": 5,
-        },
-      },
+      attrs: classAttrs(),
     });
     umlClass.set("umlName", name);
     umlClass.set("umlStereotype", stereotype || "none");
@@ -163,21 +184,21 @@ $(document).ready(function () {
   }
 
   const LINK_STYLES = {
-    association: { line: { stroke: "#000000", strokeWidth: 2, targetMarker: { type: "none" } } },
+    association: { line: { stroke: CLASS_STROKE, strokeWidth: 1.75, targetMarker: { type: "none" } } },
     dependency: {
-      line: { strokeDasharray: "5 5", targetMarker: { type: "path", d: "M 10 -5 0 0 10 5 Z", fill: "white", stroke: "black" } },
+      line: { stroke: CLASS_STROKE, strokeWidth: 1.75, strokeDasharray: "5 5", targetMarker: { type: "path", d: "M 10 -5 0 0 10 5 Z", fill: "#ffffff", stroke: CLASS_STROKE } },
     },
     aggregation: {
-      line: { sourceMarker: { type: "path", d: "M 10 0 L 5 -5 L 0 0 L 5 5 Z", fill: "white" } },
+      line: { stroke: CLASS_STROKE, strokeWidth: 1.75, sourceMarker: { type: "path", d: "M 10 0 L 5 -5 L 0 0 L 5 5 Z", fill: "#ffffff", stroke: CLASS_STROKE } },
     },
     composition: {
-      line: { sourceMarker: { type: "path", d: "M 10 0 L 5 -5 L 0 0 L 5 5 Z", fill: "black" } },
+      line: { stroke: CLASS_STROKE, strokeWidth: 1.75, sourceMarker: { type: "path", d: "M 10 0 L 5 -5 L 0 0 L 5 5 Z", fill: CLASS_STROKE, stroke: CLASS_STROKE } },
     },
     inheritance: {
-      line: { targetMarker: { type: "path", d: "M 10 -5 0 0 10 5 Z", fill: "white" } },
+      line: { stroke: CLASS_STROKE, strokeWidth: 1.75, targetMarker: { type: "path", d: "M 10 -5 0 0 10 5 Z", fill: "#ffffff", stroke: CLASS_STROKE } },
     },
     realization: {
-      line: { strokeDasharray: "5 5", targetMarker: { type: "path", d: "M 10 -5 0 0 10 5 Z", fill: "white" } },
+      line: { stroke: CLASS_STROKE, strokeWidth: 1.75, strokeDasharray: "5 5", targetMarker: { type: "path", d: "M 10 -5 0 0 10 5 Z", fill: "#ffffff", stroke: CLASS_STROKE } },
     },
   };
 
@@ -190,10 +211,10 @@ $(document).ready(function () {
     });
     link.set("umlType", type);
     if (sourceMultiplicity) {
-      link.label(0, { position: 0.1, attrs: { text: { text: sourceMultiplicity, "font-size": 12, "font-family": "Arial" } } });
+      link.label(0, { position: 0.1, attrs: { text: { text: sourceMultiplicity, "font-size": 12, "font-family": "JetBrains Mono, monospace", fill: "#13211c" } } });
     }
     if (targetMultiplicity) {
-      link.label(1, { position: 0.9, attrs: { text: { text: targetMultiplicity, "font-size": 12, "font-family": "Arial" } } });
+      link.label(1, { position: 0.9, attrs: { text: { text: targetMultiplicity, "font-size": 12, "font-family": "JetBrains Mono, monospace", fill: "#13211c" } } });
     }
     graph.addCell(link);
     return link;
@@ -201,10 +222,10 @@ $(document).ready(function () {
 
   function applyLinkPatch(link, patch) {
     if (patch.sourceMultiplicity !== undefined) {
-      link.label(0, { position: 0.1, attrs: { text: { text: patch.sourceMultiplicity, "font-size": 12, "font-family": "Arial" } } });
+      link.label(0, { position: 0.1, attrs: { text: { text: patch.sourceMultiplicity, "font-size": 12, "font-family": "JetBrains Mono, monospace", fill: "#13211c" } } });
     }
     if (patch.targetMultiplicity !== undefined) {
-      link.label(1, { position: 0.9, attrs: { text: { text: patch.targetMultiplicity, "font-size": 12, "font-family": "Arial" } } });
+      link.label(1, { position: 0.9, attrs: { text: { text: patch.targetMultiplicity, "font-size": 12, "font-family": "JetBrains Mono, monospace", fill: "#13211c" } } });
     }
   }
 
@@ -213,6 +234,11 @@ $(document).ready(function () {
   if (ROOM.initialGraph && Array.isArray(ROOM.initialGraph.cells) && ROOM.initialGraph.cells.length) {
     applyingRemote = true;
     graph.fromJSON(ROOM.initialGraph);
+    graph.getElements().forEach(paintClassElement);
+    graph.getLinks().forEach((link) => {
+      link.attr("line/stroke", CLASS_STROKE);
+      link.attr("line/strokeWidth", 1.75);
+    });
     applyingRemote = false;
   }
 
@@ -289,10 +315,7 @@ $(document).ready(function () {
       delete activeEditingBadges[elementId];
     }
     const cell = graph.getCell(elementId);
-    if (cell) {
-      cell.attr(".uml-class-name-rect/stroke", "#000000");
-      cell.attr(".uml-class-name-rect/stroke-width", 1);
-    }
+    restoreClassStroke(cell);
   }
 
   paper.on("element:pointermove", (elementView) => {
@@ -650,17 +673,17 @@ $(document).ready(function () {
   let pendingLink = null;
 
   function resetClassBorders() {
-    if (selectedSource) selectedSource.attr(".uml-class-name-rect/stroke", "#000000");
-    if (selectedTarget) selectedTarget.attr(".uml-class-name-rect/stroke", "#000000");
+    restoreClassStroke(selectedSource);
+    restoreClassStroke(selectedTarget);
   }
 
   function updateSelectionInfo() {
     if (!currentRelationType) {
-      $("#selectionInfo").text("Selecciona el tipo de relación y luego el origen y destino.");
+      $("#selectionInfo").text("Elige un vínculo y luego marca el origen y el destino.");
     } else if (!selectedSource) {
-      $("#selectionInfo").text("Selecciona la clase de origen.");
+      $("#selectionInfo").text("Marca la clase de origen.");
     } else {
-      $("#selectionInfo").text("Selecciona la clase de destino.");
+      $("#selectionInfo").text("Marca la clase de destino.");
     }
   }
 
@@ -677,10 +700,12 @@ $(document).ready(function () {
     if (!currentRelationType) return;
     if (!selectedSource) {
       selectedSource = cellView.model;
-      selectedSource.attr(".uml-class-name-rect/stroke", "#FF0000");
+      selectedSource.attr(".uml-class-name-rect/stroke", CLASS_SOURCE_STROKE);
+      selectedSource.attr(".uml-class-name-rect/stroke-width", 3);
     } else if (!selectedTarget && cellView.model !== selectedSource) {
       selectedTarget = cellView.model;
-      selectedTarget.attr(".uml-class-name-rect/stroke", "#0000FF");
+      selectedTarget.attr(".uml-class-name-rect/stroke", CLASS_TARGET_STROKE);
+      selectedTarget.attr(".uml-class-name-rect/stroke-width", 3);
 
       const linkId = generateId("link");
       const data = { linkId, type: currentRelationType, sourceId: selectedSource.id, targetId: selectedTarget.id };

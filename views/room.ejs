@@ -3,36 +3,42 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title><%= diagramName %> — Diagramador</title>
+  <meta name="theme-color" content="#1b4332">
+  <title><%= diagramName %> — TRAZO</title>
   <link rel="stylesheet" href="/css/room.css">
 </head>
 <body class="room-page">
   <div class="room-shell">
     <header class="room-topbar">
-      <button type="button" class="icon-btn" id="toolbarToggle" aria-label="Abrir herramientas" aria-expanded="false" aria-controls="roomToolbar">☰</button>
+      <button type="button" class="icon-btn" id="toolbarToggle" aria-label="Abrir herramientas" aria-expanded="false" aria-controls="roomToolbar">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M3 10h14M3 15h14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </button>
       <div class="room-topbar__title"><%= diagramName %></div>
-      <button type="button" class="icon-btn" id="shareRoomBtnMobile" aria-label="Compartir sala" title="Compartir">🔗</button>
+      <button type="button" class="icon-btn" id="shareRoomBtnMobile" aria-label="Compartir sala" title="Compartir">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 10h4M7.2 7.2 4.5 6M7.2 12.8 4.5 14M12.8 7.2 15.5 6M12.8 12.8 15.5 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="4.5" cy="10" r="1.6" fill="currentColor"/><circle cx="15.5" cy="6" r="1.6" fill="currentColor"/><circle cx="15.5" cy="14" r="1.6" fill="currentColor"/></svg>
+      </button>
     </header>
 
     <div class="toolbar-backdrop" id="toolbarBackdrop" hidden></div>
 
     <aside class="toolbar" id="roomToolbar">
-      <a class="toolbar__back" href="/diagrams">&larr; Mis diagramas</a>
+      <a class="toolbar__back" href="/diagrams">Salas</a>
+      <p class="toolbar__kicker">«sala»</p>
       <h1 class="toolbar__title"><%= diagramName %></h1>
 
       <div id="connectionStatus"><span class="dot"></span><span id="connectionStatusText">Conectando…</span></div>
 
-      <button type="button" id="shareRoomBtn" class="share">Compartir sala</button>
-      <button type="button" id="aiAssistantBtn" class="ai">Asistente IA</button>
-      <a class="tool-link" href="/room/<%= shareToken %>/export.xmi">Exportar a XMI</a>
+      <button type="button" id="shareRoomBtn" class="share">Invitar a la sala</button>
+      <button type="button" id="aiAssistantBtn" class="ai">Pedirle a la IA</button>
+      <a class="tool-link" href="/room/<%= shareToken %>/export.xmi">Descargar XMI</a>
 
       <div class="toolbar-section">
-        <h2>Elementos</h2>
-        <button type="button" id="addUserClass">+ Agregar clase</button>
+        <h2>Piezas</h2>
+        <button type="button" id="addUserClass">Nueva clase</button>
       </div>
 
       <div class="toolbar-section">
-        <h2>Relaciones</h2>
+        <h2>Vínculos</h2>
         <button type="button" id="addAssociation">Asociación</button>
         <button type="button" id="addDependency">Dependencia</button>
         <button type="button" id="addAggregation">Agregación</button>
@@ -42,18 +48,20 @@
       </div>
 
       <div class="side-panel">
-        <h2>Conectados</h2>
+        <h2>En la sala</h2>
         <ul id="presenceList"></ul>
       </div>
 
       <div class="side-panel">
-        <h2>Estado</h2>
-        <div id="selectionInfo">Selecciona el tipo de relación y luego el origen y destino.</div>
+        <h2>Qué sigue</h2>
+        <div id="selectionInfo">Elige un vínculo y luego marca el origen y el destino.</div>
         <div id="saveStatus"></div>
       </div>
     </aside>
 
-    <div id="diagram" role="application" aria-label="Lienzo del diagrama UML"></div>
+    <div class="canvas">
+      <div id="diagram" role="application" aria-label="Lienzo del diagrama UML"></div>
+    </div>
   </div>
 
   <div id="toastContainer" aria-live="polite"></div>
@@ -69,7 +77,7 @@
 
   <div class="modal-overlay" id="modalClass">
     <div class="modal-box" role="dialog" aria-labelledby="modalClassTitle">
-      <h3 id="modalClassTitle">Clase</h3>
+      <h3 id="modalClassTitle">Nombre de la clase</h3>
       <label for="classNameInput">Nombre</label>
       <input type="text" id="classNameInput" placeholder="Ej: Usuario" autocomplete="off">
       <label for="classStereotypeInput">Estereotipo</label>
@@ -88,7 +96,7 @@
 
   <div class="modal-overlay" id="modalAttributes">
     <div class="modal-box" role="dialog" aria-labelledby="modalAttrTitle">
-      <h3 id="modalAttrTitle">Atributos</h3>
+      <h3 id="modalAttrTitle">Qué guarda la clase</h3>
       <label for="attributesInput">Uno por línea, formato UML: visibilidad nombre: tipo</label>
       <textarea id="attributesInput" rows="6" placeholder="+ nombre: string&#10;- edad: number"></textarea>
       <div class="hint">Visibilidad: + público, - privado, # protegido, ~ paquete</div>
@@ -102,7 +110,7 @@
 
   <div class="modal-overlay" id="modalMethods">
     <div class="modal-box" role="dialog" aria-labelledby="modalMethodsTitle">
-      <h3 id="modalMethodsTitle">Métodos</h3>
+      <h3 id="modalMethodsTitle">Qué hace la clase</h3>
       <label for="methodsInput">Uno por línea, formato UML: visibilidad nombre(params): tipoRetorno</label>
       <textarea id="methodsInput" rows="6" placeholder="+ guardar(id: number): void"></textarea>
       <div class="error" id="methodsError"></div>
@@ -115,7 +123,7 @@
 
   <div class="modal-overlay" id="modalShare">
     <div class="modal-box" role="dialog" aria-labelledby="modalShareTitle">
-      <h3 id="modalShareTitle">Compartir sala</h3>
+      <h3 id="modalShareTitle">Invitar a la sala</h3>
       <label for="shareLinkInput">Enlace de la sala</label>
       <div class="share-row">
         <input type="text" id="shareLinkInput" readonly>
@@ -134,14 +142,16 @@
 
   <div class="modal-overlay" id="modalAI">
     <div class="modal-box modal-ai" role="dialog" aria-labelledby="modalAiTitle">
-      <h3 id="modalAiTitle">Asistente IA</h3>
+      <h3 id="modalAiTitle">Dibujar con la IA</h3>
       <div id="aiChatLog"></div>
       <div class="ai-input-row">
         <input type="text" id="aiTextInput" placeholder="Ej: crea una clase Usuario con atributos nombre y email" autocomplete="off">
-        <button type="button" id="aiMicBtn" title="Mantén presionado para grabar" aria-label="Grabar voz">🎤</button>
+        <button type="button" id="aiMicBtn" title="Mantén presionado para grabar" aria-label="Grabar voz">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="2.5" width="6" height="9" rx="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4.5 9.5a5.5 5.5 0 0 0 11 0M10 15v2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </button>
         <button type="button" id="aiSendBtn">Enviar</button>
       </div>
-      <div class="ai-hint">Escribe o habla. La IA crea, edita o elimina clases, atributos, métodos y relaciones.</div>
+      <div class="ai-hint">Escribe o mantén el micrófono. La IA crea, edita o borra clases, atributos, métodos y vínculos.</div>
       <div class="modal-actions">
         <button type="button" class="cancel" data-close="modalAI">Cerrar</button>
       </div>
@@ -150,7 +160,7 @@
 
   <div class="modal-overlay" id="modalMultiplicity">
     <div class="modal-box" role="dialog" aria-labelledby="modalMultTitle">
-      <h3 id="modalMultTitle">Multiplicidad</h3>
+      <h3 id="modalMultTitle">Cuántos en cada extremo</h3>
       <label for="sourceMultiplicityInput">Origen</label>
       <input type="text" id="sourceMultiplicityInput" placeholder="Ej: 1, 0..1, *, 0..*, 1..*" autocomplete="off">
       <label for="targetMultiplicityInput">Destino</label>

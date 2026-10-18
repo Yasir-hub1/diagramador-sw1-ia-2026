@@ -3,65 +3,88 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Mis diagramas — Diagramador</title>
+  <meta name="theme-color" content="#1b4332">
+  <title>Salas — TRAZO</title>
   <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body class="library-page">
-  <div class="library">
-    <header class="library__header">
-      <div>
+  <header class="topbar">
+    <div class="topbar__inner">
+      <div class="topbar__brand">
         <div class="brand-mark">
-          <span class="brand-mark__name">Diagramador</span>
-          <span class="brand-mark__tag">UML</span>
+          <span class="mark" aria-hidden="true"><span></span><span></span><span></span></span>
+          <span class="brand-mark__name">TRAZO</span>
         </div>
-        <h1>Mis diagramas</h1>
+        <h1>Salas de clases</h1>
+        <p class="topbar__lede">Cada sala es un diagrama compartido. Entras y el modelo se mueve contigo.</p>
       </div>
       <div class="library__user">
-        <span><%= userName %></span>
-        <a class="logout" href="/logout">Cerrar sesión</a>
+        <span class="library__name"><%= userName %></span>
+        <a class="logout" href="/logout">Salir</a>
       </div>
-    </header>
+    </div>
+  </header>
 
-    <section class="panel" aria-labelledby="createTitle">
-      <h2 class="panel__title" id="createTitle">Nueva sala</h2>
-      <form class="form-row" action="/diagrams" method="POST">
-        <input type="text" name="name" placeholder="Nombre del diagrama" maxlength="120" required>
-        <button class="btn btn--primary" type="submit">Crear sala</button>
-      </form>
-    </section>
+  <main class="library">
+    <div class="action-grid">
+      <section class="panel" aria-labelledby="createTitle">
+        <header class="panel__head">
+          <span class="stereotype">«nueva»</span>
+          <h2 class="panel__title" id="createTitle">Crear una sala</h2>
+        </header>
+        <p class="panel__help">Ponle un nombre que el grupo reconozca.</p>
+        <form class="form-row" action="/diagrams" method="POST">
+          <input type="text" name="name" placeholder="Nombre del diagrama" maxlength="120" required>
+          <button class="btn btn--primary" type="submit">Crear sala</button>
+        </form>
+      </section>
 
-    <section class="panel" aria-labelledby="importTitle">
-      <h2 class="panel__title" id="importTitle">Importar XMI</h2>
-      <form class="form-row" action="/diagrams/import" method="POST" enctype="multipart/form-data">
-        <input type="file" name="xmiFile" accept=".xmi,.xml" required>
-        <button class="btn btn--accent" type="submit">Importar</button>
-      </form>
-    </section>
+      <section class="panel" aria-labelledby="importTitle">
+        <header class="panel__head">
+          <span class="stereotype">«xmi»</span>
+          <h2 class="panel__title" id="importTitle">Traer un modelo</h2>
+        </header>
+        <p class="panel__help">Un archivo XMI o XML de un diagrama de clases.</p>
+        <form class="form-row" action="/diagrams/import" method="POST" enctype="multipart/form-data">
+          <input type="file" name="xmiFile" accept=".xmi,.xml" required>
+          <button class="btn btn--accent" type="submit">Importar</button>
+        </form>
+      </section>
+    </div>
 
-    <% if (diagrams.length === 0) { %>
-      <div class="empty-state">
-        <strong>Todavía no hay diagramas</strong>
-        Crea una sala arriba o importa un archivo XMI para empezar.
-      </div>
-    <% } else { %>
-      <ul class="diagram-list">
-        <% diagrams.forEach(function(d) { %>
-          <li class="diagram-item">
-            <div>
-              <div class="diagram-item__name"><%= d.name %></div>
-              <div class="diagram-item__meta">
-                <%= d.is_owner ? 'Propietario' : 'Colaborador' %> · <%= new Date(d.updated_at).toLocaleString() %>
+    <section class="roster" aria-labelledby="rosterTitle">
+      <header class="roster__head">
+        <h2 id="rosterTitle">Abiertas ahora</h2>
+        <p><%= diagrams.length %> <%= diagrams.length === 1 ? "sala" : "salas" %></p>
+      </header>
+
+      <% if (diagrams.length === 0) { %>
+        <div class="empty-state">
+          <span class="stereotype">«vacío»</span>
+          <strong>Todavía no hay salas</strong>
+          <p>Crea una arriba o importa un XMI para el primer diagrama.</p>
+        </div>
+      <% } else { %>
+        <ul class="diagram-list">
+          <% diagrams.forEach(function(d) { %>
+            <li class="diagram-item">
+              <div class="diagram-item__main">
+                <div class="diagram-item__name"><%= d.name %></div>
+                <div class="diagram-item__meta">
+                  <span class="role <%= d.is_owner ? 'role--own' : 'role--with' %>"><%= d.is_owner ? 'Propietario' : 'Colaborador' %></span>
+                  <time datetime="<%= new Date(d.updated_at).toISOString() %>"><%= new Date(d.updated_at).toLocaleString() %></time>
+                </div>
               </div>
-            </div>
-            <div class="diagram-item__actions">
-              <input class="share-link" type="text" readonly value="/room/<%= d.share_token %>" onclick="this.select()" title="Enlace de la sala">
-              <a class="btn btn--accent btn--sm" href="/room/<%= d.share_token %>">Entrar</a>
-            </div>
-          </li>
-        <% }); %>
-      </ul>
-    <% } %>
-  </div>
+              <div class="diagram-item__actions">
+                <input class="share-link" type="text" readonly value="/room/<%= d.share_token %>" onclick="this.select()" title="Enlace de la sala">
+                <a class="btn btn--primary btn--sm" href="/room/<%= d.share_token %>">Entrar</a>
+              </div>
+            </li>
+          <% }); %>
+        </ul>
+      <% } %>
+    </section>
+  </main>
 
   <div id="toastContainer"></div>
   <script src="/toast.js"></script>

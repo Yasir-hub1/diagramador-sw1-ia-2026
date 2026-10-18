@@ -8,25 +8,27 @@ const { XMLParser } = require('fast-xml-parser');
 
 const VISIBILITY_SYMBOL = { public: '+', private: '-', protected: '#', package: '~' };
 
+const CLASS_STROKE = '#1b4332';
+
 const CLASS_ATTRS = {
-  '.uml-class-name-rect': { fill: '#FFFFE0', stroke: '#000000', 'stroke-width': 1, rx: 0, ry: 0 },
-  '.uml-class-attrs-rect': { fill: '#FFFFE0', stroke: '#000000', 'stroke-width': 1, rx: 0, ry: 0 },
-  '.uml-class-methods-rect': { fill: '#FFFFE0', stroke: '#000000', 'stroke-width': 1, rx: 0, ry: 0 },
+  '.uml-class-name-rect': { fill: '#1b4332', stroke: CLASS_STROKE, 'stroke-width': 1.5, rx: 0, ry: 0 },
+  '.uml-class-attrs-rect': { fill: '#f4f7f5', stroke: CLASS_STROKE, 'stroke-width': 1.5, rx: 0, ry: 0 },
+  '.uml-class-methods-rect': { fill: '#ffffff', stroke: CLASS_STROKE, 'stroke-width': 1.5, rx: 0, ry: 0 },
   '.uml-class-name-text': {
-    'font-family': 'Arial', 'font-size': 14, 'font-weight': 'bold',
-    fill: '#000000', 'text-anchor': 'middle', 'ref-x': 0.5, 'ref-y': 0.5, 'y-alignment': 'middle',
+    'font-family': 'Figtree, sans-serif', 'font-size': 15, 'font-weight': '700',
+    fill: '#f4f7f5', 'text-anchor': 'middle', 'ref-x': 0.5, 'ref-y': 0.5, 'y-alignment': 'middle',
   },
-  '.uml-class-attrs-text': { 'font-family': 'Arial', 'font-size': 12, fill: '#000000', 'text-anchor': 'start', 'ref-x': 10, 'ref-y': 5 },
-  '.uml-class-methods-text': { 'font-family': 'Arial', 'font-size': 12, fill: '#000000', 'text-anchor': 'start', 'ref-x': 10, 'ref-y': 5 },
+  '.uml-class-attrs-text': { 'font-family': 'JetBrains Mono, monospace', 'font-size': 12, fill: '#13211c', 'text-anchor': 'start', 'ref-x': 12, 'ref-y': 6 },
+  '.uml-class-methods-text': { 'font-family': 'JetBrains Mono, monospace', 'font-size': 12, fill: '#13211c', 'text-anchor': 'start', 'ref-x': 12, 'ref-y': 6 },
 };
 
 const LINK_STYLES = {
-  association: { line: { stroke: '#000000', strokeWidth: 2, targetMarker: { type: 'none' } } },
-  dependency: { line: { strokeDasharray: '5 5', targetMarker: { type: 'path', d: 'M 10 -5 0 0 10 5 Z', fill: 'white', stroke: 'black' } } },
-  aggregation: { line: { sourceMarker: { type: 'path', d: 'M 10 0 L 5 -5 L 0 0 L 5 5 Z', fill: 'white' } } },
-  composition: { line: { sourceMarker: { type: 'path', d: 'M 10 0 L 5 -5 L 0 0 L 5 5 Z', fill: 'black' } } },
-  inheritance: { line: { targetMarker: { type: 'path', d: 'M 10 -5 0 0 10 5 Z', fill: 'white' } } },
-  realization: { line: { strokeDasharray: '5 5', targetMarker: { type: 'path', d: 'M 10 -5 0 0 10 5 Z', fill: 'white' } } },
+  association: { line: { stroke: CLASS_STROKE, strokeWidth: 1.75, targetMarker: { type: 'none' } } },
+  dependency: { line: { stroke: CLASS_STROKE, strokeWidth: 1.75, strokeDasharray: '5 5', targetMarker: { type: 'path', d: 'M 10 -5 0 0 10 5 Z', fill: '#ffffff', stroke: CLASS_STROKE } } },
+  aggregation: { line: { stroke: CLASS_STROKE, strokeWidth: 1.75, sourceMarker: { type: 'path', d: 'M 10 0 L 5 -5 L 0 0 L 5 5 Z', fill: '#ffffff', stroke: CLASS_STROKE } } },
+  composition: { line: { stroke: CLASS_STROKE, strokeWidth: 1.75, sourceMarker: { type: 'path', d: 'M 10 0 L 5 -5 L 0 0 L 5 5 Z', fill: CLASS_STROKE, stroke: CLASS_STROKE } } },
+  inheritance: { line: { stroke: CLASS_STROKE, strokeWidth: 1.75, targetMarker: { type: 'path', d: 'M 10 -5 0 0 10 5 Z', fill: '#ffffff', stroke: CLASS_STROKE } } },
+  realization: { line: { stroke: CLASS_STROKE, strokeWidth: 1.75, strokeDasharray: '5 5', targetMarker: { type: 'path', d: 'M 10 -5 0 0 10 5 Z', fill: '#ffffff', stroke: CLASS_STROKE } } },
 };
 
 function asArray(value) {
@@ -149,8 +151,8 @@ function importFromXmi(xmlString) {
 
     const linkId = generateId('link');
     const labels = [];
-    if (sourceMultiplicity) labels[0] = { position: 0.1, attrs: { text: { text: sourceMultiplicity, 'font-size': 12, 'font-family': 'Arial' } } };
-    if (targetMultiplicity) labels[1] = { position: 0.9, attrs: { text: { text: targetMultiplicity, 'font-size': 12, 'font-family': 'Arial' } } };
+    if (sourceMultiplicity) labels[0] = { position: 0.1, attrs: { text: { text: sourceMultiplicity, 'font-size': 12, 'font-family': 'JetBrains Mono, monospace', fill: '#13211c' } } };
+    if (targetMultiplicity) labels[1] = { position: 0.9, attrs: { text: { text: targetMultiplicity, 'font-size': 12, 'font-family': 'JetBrains Mono, monospace', fill: '#13211c' } } };
 
     cells.push({
       id: linkId,

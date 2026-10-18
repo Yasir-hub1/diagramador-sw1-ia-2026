@@ -3,35 +3,40 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Registro — Diagramador</title>
+  <meta name="theme-color" content="#1b4332">
+  <title>Crear cuenta — TRAZO</title>
   <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body class="auth-page">
   <div class="auth-shell">
-    <div class="brand-mark">
-      <span class="brand-mark__name">Diagramador</span>
-      <span class="brand-mark__tag">UML</span>
-    </div>
-    <div class="auth-card">
-      <h1>Crear cuenta</h1>
-      <p class="lede">Regístrate para colaborar en diagramas UML en tiempo real.</p>
-      <form action="/register" method="POST" novalidate>
-        <div class="field">
-          <label for="name">Nombre</label>
-          <input type="text" id="name" name="name" placeholder="Cómo te verán en la sala" autocomplete="name" required>
+    <%- include("partials/auth-stage") %>
+    <main class="auth-panel">
+      <div class="auth-card">
+        <header class="compartment__head">
+          <span class="stereotype">«alta»</span>
+          <h1>Tu lugar en la sala</h1>
+          <p class="lede">Con una cuenta puedes dibujar clases y ver lo que cambian los demás.</p>
+        </header>
+        <div class="compartment__body">
+          <form action="/register" method="POST" novalidate>
+            <div class="field">
+              <label for="name">Nombre</label>
+              <input type="text" id="name" name="name" placeholder="Cómo te verán en la sala" autocomplete="name" required>
+            </div>
+            <div class="field">
+              <label for="email">Correo electrónico</label>
+              <input type="email" id="email" name="email" placeholder="tu@correo.com" autocomplete="email" required>
+            </div>
+            <div class="field">
+              <label for="password">Contraseña</label>
+              <input type="password" id="password" name="password" placeholder="Mínimo 6 caracteres" autocomplete="new-password" minlength="6" required>
+            </div>
+            <button class="btn btn--primary" type="submit">Crear cuenta</button>
+          </form>
+          <p class="auth-footer">¿Ya tienes cuenta? <a href="/login">Entrar</a></p>
         </div>
-        <div class="field">
-          <label for="email">Correo electrónico</label>
-          <input type="email" id="email" name="email" placeholder="tu@correo.com" autocomplete="email" required>
-        </div>
-        <div class="field">
-          <label for="password">Contraseña</label>
-          <input type="password" id="password" name="password" placeholder="Mínimo 6 caracteres" autocomplete="new-password" minlength="6" required>
-        </div>
-        <button class="btn btn--primary" type="submit">Registrarse</button>
-      </form>
-      <p class="auth-footer">¿Ya tienes cuenta? <a href="/login">Inicia sesión</a></p>
-    </div>
+      </div>
+    </main>
   </div>
   <div id="toastContainer"></div>
   <script src="/toast.js"></script>
