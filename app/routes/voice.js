@@ -1,16 +1,39 @@
 // routes/voice.js
+// La transcripción sigue en Whisper remoto. El modelo visual local no sustituye este paso.
 const express = require('express');
 const multer = require('multer');
-const { requireAuth } = require('../middleware/auth');
-const openai = require('../openaiClient'); // aplica el polyfill de `File` antes de usar el SDK
+const { requireApiAuth } = require('../middleware/auth');
+const { getOpenAiClient } = require('../openaiClient');
 const { toFile } = require('openai');
+const { hasOpenAiKey } = require('../ai/settings');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 const router = express.Router();
 
-router.post('/api/voice/transcribe', requireAuth, upload.single('audio'), async (req, res) => {
+function transcriptionFailure(err) {
+  const status = err && (err.status || err.statusCode);
+  const detail = String((err && err.message) || '');
+  if (status === 401 || /incorrect api key|invalid api key|expired/i.test(detail)) {
+    return {
+      status: 503,
+      error: 'La transcripción de voz necesita una clave de OpenAI válida. Actualiza OPENAI_API_KEY y reinicia el servidor.',
+    };
+  }
+  if (status === 429) {
+    return { status: 429, error: 'Whisper está ocupado. Espera un momento e inténtalo de nuevo.' };
+  }
+  return { status: 500, error: 'No se pudo transcribir el audio.' };
+}
+
+router.post('/api/voice/transcribe', requireApiAuth, upload.single('audio'), async (req, res) => {
   if (!req.file) {
-    return res.status(400).json({ error: 'No se recibió audio' });
+    return res.status(400).json({ error: 'No se recibió audio.' });
+  }
+  const openai = getOpenAiClient();
+  if (!openai || !hasOpenAiKey()) {
+    return res.status(503).json({
+      error: 'La transcripción de voz necesita OPENAI_API_KEY. Sin esa clave, escribe el pedido a mano.',
+    });
   }
   try {
     const uploadable = await toFile(req.file.buffer, req.file.originalname || 'audio.webm', {
@@ -21,10 +44,15 @@ router.post('/api/voice/transcribe', requireAuth, upload.single('audio'), async 
       model: 'whisper-1',
       language: 'es',
     });
-    res.json({ text: transcription.text });
+    const text = String((transcription && transcription.text) || '').trim();
+    if (!text) {
+      return res.status(422).json({ error: 'No se escuchó nada claro. Dicta un poco más cerca del micrófono.' });
+    }
+    res.json({ text });
   } catch (err) {
-    console.error(err.message);
-    res.status(500).json({ error: 'Error al transcribir el audio' });
+    const failure = transcriptionFailure(err);
+    console.error('Voz:', failure.status);
+    res.status(failure.status).json({ error: failure.error });
   }
 });
 

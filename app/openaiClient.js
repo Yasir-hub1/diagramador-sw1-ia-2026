@@ -1,14 +1,23 @@
-// openaiClient.js
-// El SDK de OpenAI necesita `File` como global para subir archivos (audio,
-// en app/routes/voice.js). Node solo lo expone así desde la v20; en
-// versiones anteriores hay que polyfillearlo con el `File` de node:buffer.
+// El SDK de OpenAI necesita `File` como global para subir audio (Whisper).
+// Node lo expone desde la v20; en versiones anteriores se polyfillea.
 if (typeof globalThis.File === 'undefined') {
   const { File } = require('node:buffer');
   globalThis.File = File;
 }
 
 const OpenAI = require('openai');
+const { openAiApiKey } = require('./ai/settings');
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+let cachedClient = null;
+let cachedKey = '';
 
-module.exports = openai;
+function getOpenAiClient() {
+  const apiKey = openAiApiKey();
+  if (!apiKey) return null;
+  if (cachedClient && cachedKey === apiKey) return cachedClient;
+  cachedKey = apiKey;
+  cachedClient = new OpenAI({ apiKey });
+  return cachedClient;
+}
+
+module.exports = { getOpenAiClient };

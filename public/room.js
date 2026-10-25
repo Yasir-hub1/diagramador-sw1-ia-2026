@@ -455,6 +455,20 @@ $(document).ready(function () {
     });
   }, 1500);
 
+  function flushSave() {
+    scheduleSave.cancel();
+    setSaveStatus("Guardando…");
+    return new Promise((resolve) => {
+      socket.emit("graph:save", { graphJson: graph.toJSON() }, (res) => {
+        if (res && res.ok) setSaveStatus("Guardado");
+        else setSaveStatus("Error al guardar");
+        resolve(res || { ok: false, message: "No se pudo guardar el diagrama." });
+      });
+    });
+  }
+
+  window.DiagramAPI.flushSave = flushSave;
+
   graph.on("add remove change", () => {
     if (applyingRemote) return;
     scheduleSave();

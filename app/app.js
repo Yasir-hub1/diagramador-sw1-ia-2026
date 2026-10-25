@@ -7,7 +7,9 @@ const bcrypt = require('bcrypt');
 const sessionMiddleware = require('./session');
 const roomsRouter = require('./routes/rooms');
 const voiceRouter = require('./routes/voice');
+const aiRouter = require('./routes/ai');
 const attachSockets = require('./sockets');
+const { diagramProvider } = require('./ai/settings');
 
 const app = express();
 const server = http.createServer(app);
@@ -111,8 +113,9 @@ app.get('/logout', (req, res) => {
 // Rutas de diagramas / salas colaborativas
 app.use('/', roomsRouter);
 
-// Rutas de IA (transcripción de voz)
+// Rutas de IA: diagramas según OPENAI_API_KEY; la voz usa Whisper si hay clave.
 app.use('/', voiceRouter);
+app.use('/', aiRouter);
 
 // Sockets de colaboración en tiempo real
 attachSockets(io, sessionMiddleware);
@@ -121,4 +124,5 @@ attachSockets(io, sessionMiddleware);
 const PORT = 3001;
 server.listen(PORT, () => {
   console.log(`Servidor corriendo en el puerto ${PORT}`);
+  console.log('IA de diagramas:', diagramProvider() === 'openai' ? 'openai' : 'ollama');
 });

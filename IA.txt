@@ -1,0 +1,4 @@
+link de descarga de ollama : https://ollama.com/download
+modelo : ollama pull qwen3-vl:4b
+
+run modelo: ollama run qwen3-vl:4b

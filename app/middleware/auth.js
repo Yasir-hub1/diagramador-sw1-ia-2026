@@ -7,4 +7,11 @@ function requireAuth(req, res, next) {
   next();
 }
 
-module.exports = { requireAuth };
+function requireApiAuth(req, res, next) {
+  if (!req.session || !req.session.userId) {
+    return res.status(401).json({ error: 'Inicia sesión para usar la IA.' });
+  }
+  next();
+}
+
+module.exports = { requireAuth, requireApiAuth };

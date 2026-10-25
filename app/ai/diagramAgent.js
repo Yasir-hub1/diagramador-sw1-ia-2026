@@ -1,143 +1,172 @@
-// ai/diagramAgent.js
-const openai = require('../openaiClient');
-const validators = require('../../public/uml-validators');
+const { generateDiagramResponse } = require('./diagramModel');
+const { pickContractPayload, isDiagramEcho, isInputEcho } = require('./jsonText');
+const { sketchToOperations, sketchFromNotes } = require('./imageSketch');
+const { SYSTEM_PROMPT, RESPONSE_SCHEMA } = require('./umlRole');
+const { interpretReply } = require('./adaptReply');
+const { usesOpenAiDiagrams } = require('./settings');
 
-const MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const CLASS_LIMIT = 80;
+const RELATION_LIMIT = 120;
 
-const TOOL = {
-  type: 'function',
-  function: {
-    name: 'apply_diagram_operations',
-    description: 'Aplica una lista de cambios al diagrama UML de clases actual.',
-    parameters: {
-      type: 'object',
-      properties: {
-        message: {
-          type: 'string',
-          description: 'Respuesta breve en español para mostrar al usuario, resumiendo qué se hizo (o por qué no se pudo hacer nada).',
-        },
-        operations: {
-          type: 'array',
-          description: 'Lista de operaciones a aplicar, en el orden en que deben ejecutarse.',
-          items: {
-            type: 'object',
-            properties: {
-              op: {
-                type: 'string',
-                enum: ['class:add', 'class:update', 'class:remove', 'link:add', 'link:update', 'link:remove'],
-              },
-              className: {
-                type: 'string',
-                description: 'Nombre de la clase a crear, o de la clase existente a modificar/eliminar/usar como origen de una relación.',
-              },
-              newClassName: { type: 'string', description: 'Nuevo nombre si se renombra la clase (solo class:update).' },
-              stereotype: { type: 'string', enum: ['none', 'interface', 'abstract'] },
-              attributes: {
-                type: 'array',
-                items: { type: 'string' },
-                description:
-                  'Lista COMPLETA resultante de atributos de la clase, formato UML "visibilidad nombre: tipo" (ej: "+ nombre: string"). No es un delta: si la clase ya tenía atributos y se agrega uno nuevo, incluye también los anteriores que deban conservarse.',
-              },
-              methods: {
-                type: 'array',
-                items: { type: 'string' },
-                description:
-                  'Lista COMPLETA resultante de métodos, formato UML "visibilidad nombre(params): tipoRetorno" (ej: "+ guardar(id: number): void"). No es un delta.',
-              },
-              relationType: {
-                type: 'string',
-                enum: ['association', 'dependency', 'aggregation', 'composition', 'inheritance', 'realization'],
-              },
-              targetClassName: { type: 'string', description: 'Clase destino de la relación (para link:add/update/remove).' },
-              sourceMultiplicity: { type: 'string', description: 'Multiplicidad en el origen, ej: 1, 0..1, *, 0..*, 1..*' },
-              targetMultiplicity: { type: 'string', description: 'Multiplicidad en el destino.' },
-            },
-            required: ['op'],
-          },
-        },
-      },
-      required: ['message', 'operations'],
-    },
-  },
-};
-
-function buildSystemPrompt(context) {
-  const classes = (context && context.classes) || [];
-  const relations = (context && context.relations) || [];
-  return [
-    'Eres el asistente de un diagramador colaborativo de clases UML 2.5.',
-    'El usuario te da instrucciones en español (por voz o chat) para crear, editar o eliminar clases, atributos, métodos y relaciones.',
-    'Reglas de formato UML que DEBES respetar en los atributos y métodos que generes:',
-    '- Atributo: "visibilidad nombre: tipo", visibilidad es uno de + - # ~ (público, privado, protegido, paquete). Ej: "+ nombre: string".',
-    '- Método: "visibilidad nombre(params): tipoRetorno". Ej: "+ calcularTotal(): number".',
-    '- Estereotipos de clase válidos: none, interface, abstract.',
-    '- Tipos de relación válidos: association, dependency, aggregation, composition, inheritance, realization.',
-    '- Multiplicidad válida: 1, 0..1, *, 0..*, 1..*, o n..m (números).',
-    'Cuando actualices atributos o métodos de una clase existente, siempre entrega la lista COMPLETA resultante (no solo lo nuevo), conservando lo que no se pidió cambiar.',
-    'Para editar o eliminar una relación existente (link:update/link:remove), incluye siempre className, targetClassName y relationType exactamente como aparecen en el contexto, para poder identificarla.',
-    'Refiere siempre a las clases por su nombre exacto tal como aparecen en el contexto (nunca inventes IDs).',
-    'Genera ÚNICAMENTE las operaciones necesarias para cumplir lo que el usuario pidió explícitamente, ni una más. No agregues relaciones, atributos, métodos ni clases adicionales que no se hayan solicitado.',
-    'Si una operación necesita datos que no tienes (por ejemplo una relación sin clase destino), NO la incluyas en "operations"; en su lugar explica en "message" qué información falta.',
-    'Si el usuario pide algo ambiguo o imposible con el contexto dado, explica brevemente en "message" qué no se pudo hacer y deja "operations" vacío o parcial.',
-    '',
-    'Estado actual del diagrama (contexto):',
-    'Clases: ' + JSON.stringify(classes.map((c) => ({ name: c.name, stereotype: c.stereotype, attributes: c.attributes, methods: c.methods }))),
-    'Relaciones: ' + JSON.stringify(relations.map((r) => ({ type: r.type, from: r.sourceName, to: r.targetName }))),
-    '',
-    'Siempre debes responder llamando a la función apply_diagram_operations.',
-  ].join('\n');
+function compactSnapshot(snapshot) {
+  const classes = snapshot.classes.slice(0, CLASS_LIMIT).map((item) => ({
+    name: item.name,
+    stereotype: item.stereotype,
+    attributes: item.attributes,
+    methods: item.methods,
+  }));
+  const relations = snapshot.relations.slice(0, RELATION_LIMIT).map((item) => ({
+    type: item.type,
+    from: item.sourceName,
+    to: item.targetName,
+    sourceMultiplicity: item.sourceMultiplicity,
+    targetMultiplicity: item.targetMultiplicity,
+  }));
+  return {
+    context: { classes, relations },
+    truncated: snapshot.classes.length > classes.length || snapshot.relations.length > relations.length,
+  };
 }
 
-function sanitizeOperation(rawOp) {
-  const op = { ...rawOp };
-  if (op.attributes) {
-    op.attributes = op.attributes.map((a) => String(a).trim()).filter((a) => validators.validateAttribute(a));
-  }
-  if (op.methods) {
-    op.methods = op.methods.map((m) => String(m).trim()).filter((m) => validators.validateMethod(m));
-  }
-  if (op.sourceMultiplicity && !validators.validateMultiplicity(op.sourceMultiplicity)) delete op.sourceMultiplicity;
-  if (op.targetMultiplicity && !validators.validateMultiplicity(op.targetMultiplicity)) delete op.targetMultiplicity;
-  if (op.stereotype && !validators.validateStereotype(op.stereotype)) delete op.stereotype;
-  if (op.relationType && !validators.validateRelationType(op.relationType)) delete op.relationType;
-  return op;
+function withTruncation(result, truncated) {
+  if (!truncated) return result;
+  result.warnings = [
+    'El diagrama es muy grande: la IA solo vio las primeras clases y relaciones.',
+    ...result.warnings,
+  ].slice(0, 8);
+  return result;
 }
 
-function isCompleteOperation(op) {
-  if (!op || !op.op) return false;
-  if ((op.op === 'class:add' || op.op === 'class:update' || op.op === 'class:remove') && !op.className) return false;
-  if (op.op === 'link:add' || op.op === 'link:update' || op.op === 'link:remove') {
-    if (!op.className || !op.targetClassName || !op.relationType) return false;
-  }
-  return true;
+function unreadReply(hasImage) {
+  return {
+    reply: hasImage
+      ? 'No pude interpretar el diagrama de la imagen. Prueba con una captura más nítida o añade una instrucción.'
+      : 'La IA devolvió una respuesta que no se pudo leer.',
+    warnings: [],
+    prepared: null,
+    status: 'error',
+    needsClarification: false,
+  };
 }
 
-async function runDiagramAgent(text, context) {
-  const completion = await openai.chat.completions.create({
-    model: MODEL,
-    messages: [
-      { role: 'system', content: buildSystemPrompt(context) },
-      { role: 'user', content: text },
-    ],
-    tools: [TOOL],
-    tool_choice: { type: 'function', function: { name: 'apply_diagram_operations' } },
+function buildTextPrompt(text, snapshot) {
+  const packed = compactSnapshot(snapshot);
+  const empty = packed.context.classes.length === 0;
+  return {
+    prompt: [
+      'Pedido:',
+      text,
+      '',
+      empty ? 'Diagrama actual: vacío. Crea desde cero.' : 'Diagrama actual:',
+      empty ? '' : JSON.stringify(packed.context),
+      '',
+      'Devuelve message, operations y warnings. Incluye class:add y, si hay que relacionar, link:add.',
+    ].filter((line, index, lines) => line !== '' || lines[index - 1] !== '').join('\n'),
+    truncated: packed.truncated,
+  };
+}
+
+function buildImageNotesPrompt(text, snapshot, notes) {
+  const packed = compactSnapshot(snapshot);
+  return {
+    prompt: [
+      'Pedido:',
+      text,
+      '',
+      'Notas de la imagen:',
+      notes,
+      '',
+      packed.context.classes.length ? 'Diagrama actual:' : 'Diagrama actual: vacío.',
+      packed.context.classes.length ? JSON.stringify(packed.context) : '',
+      '',
+      'Convierte lo visible en operations TRAZO. No inventes clases que no estén en las notas.',
+    ].filter((line, index, lines) => line !== '' || lines[index - 1] !== '').join('\n'),
+    truncated: packed.truncated,
+  };
+}
+
+function notesFromReply(reply) {
+  const content = String(reply.content || '').trim();
+  if (content.length > 80) return content.slice(0, 6000);
+  const thinking = String(reply.thinking || '').trim();
+  return (thinking + '\n' + content).trim().slice(-4000);
+}
+
+function usableProposal(result) {
+  if (!result) return null;
+  if (result.prepared && result.prepared.length > 0) return result;
+  if (Array.isArray(result.prepared) && result.prepared.length === 0 && result.reply) return result;
+  return null;
+}
+
+function payloadFromReply(reply) {
+  const payload = pickContractPayload(reply.content, reply.thinking);
+  if (!payload || isInputEcho(payload) || isDiagramEcho(payload)) return null;
+  return payload;
+}
+
+async function askTrazoJson({ prompt, imageBase64 }) {
+  const local = !usesOpenAiDiagrams();
+  return generateDiagramResponse({
+    system: SYSTEM_PROMPT,
+    prompt,
+    imageBase64,
+    format: RESPONSE_SCHEMA,
+    prefill: local ? '{' : undefined,
+    numPredict: 2500,
   });
+}
 
-  const message = completion.choices[0].message;
-  const toolCall = message.tool_calls && message.tool_calls[0];
-  if (!toolCall) {
-    return { reply: message.content || 'No entendí la instrucción.', operations: [] };
-  }
+async function observeImage({ text, imageBase64 }) {
+  return generateDiagramResponse({
+    system: 'Miras un diagrama UML de clases o un boceto. Lista solo lo visible: clases, atributos, métodos y relaciones.',
+    prompt: ['Pedido de la persona:', text, '', 'Describe el diagrama de la imagen.'].join('\n'),
+    imageBase64,
+    prefill: 'Clases visibles:\n',
+    numPredict: 1800,
+  });
+}
 
-  let args;
-  try {
-    args = JSON.parse(toolCall.function.arguments);
-  } catch (err) {
-    return { reply: 'La IA devolvió una respuesta con formato inválido.', operations: [] };
-  }
+async function runTextAgent({ text, snapshot }) {
+  const userPrompt = buildTextPrompt(text, snapshot);
+  const reply = await askTrazoJson({ prompt: userPrompt.prompt });
+  const payload = payloadFromReply(reply);
+  if (!payload) return unreadReply(false);
+  return withTruncation(interpretReply(payload, snapshot), userPrompt.truncated);
+}
 
-  const operations = (args.operations || []).map(sanitizeOperation).filter(isCompleteOperation);
-  return { reply: args.message || '', operations };
+async function runOpenAiImageAgent({ text, snapshot, imageBase64 }) {
+  const userPrompt = buildTextPrompt(text, snapshot);
+  const reply = await askTrazoJson({
+    prompt: [
+      userPrompt.prompt,
+      '',
+      'Si hay imagen, extrae solo las clases y relaciones que se lean con claridad.',
+    ].join('\n'),
+    imageBase64,
+  });
+  const payload = payloadFromReply(reply);
+  if (!payload) return unreadReply(true);
+  return withTruncation(interpretReply(payload, snapshot), userPrompt.truncated);
+}
+
+async function runImageAgent({ text, snapshot, imageBase64 }) {
+  if (usesOpenAiDiagrams()) return runOpenAiImageAgent({ text, snapshot, imageBase64 });
+  const seen = await observeImage({ text, imageBase64 });
+  const notes = notesFromReply(seen);
+  const fromNotes = usableProposal(sketchToOperations(sketchFromNotes(notes), snapshot));
+  if (fromNotes && fromNotes.prepared && fromNotes.prepared.length > 0) return fromNotes;
+  if (notes.length < 40) return unreadReply(true);
+  const jsonPrompt = buildImageNotesPrompt(text, snapshot, notes);
+  const designed = await askTrazoJson({ prompt: jsonPrompt.prompt });
+  const payload = payloadFromReply(designed);
+  if (!payload) return unreadReply(true);
+  return withTruncation(interpretReply(payload, snapshot), jsonPrompt.truncated);
+}
+
+async function runDiagramAgent({ text, snapshot, imageBase64 }) {
+  if (imageBase64) return runImageAgent({ text, snapshot, imageBase64 });
+  return runTextAgent({ text, snapshot });
 }
 
 module.exports = { runDiagramAgent };

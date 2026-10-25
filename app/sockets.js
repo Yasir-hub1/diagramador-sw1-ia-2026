@@ -2,7 +2,11 @@
 const diagramsRepository = require('./repositories/diagramsRepository');
 const mutations = require('./diagramMutations');
 const { roomName } = mutations;
-const { runDiagramAgent } = require('./ai/diagramAgent');
+const { createDiagramProposal } = require('./ai/createProposal');
+const proposalStore = require('./ai/proposalStore');
+const { applyPreparedSteps } = require('./ai/applyPrepared');
+const { snapshotFromGraph, fingerprintOf } = require('../public/diagram-snapshot');
+const { LocalAiError } = require('./ai/errors');
 
 // Presencia en memoria: shareToken -> Map<socketId, {userId, userName}>
 const presenceByRoom = new Map();
@@ -122,20 +126,110 @@ function attachSockets(io, sessionMiddleware) {
       await mutations.applyLinkRemove(io, buildCtx(true), data);
     });
 
-    socket.on('ai:command', async ({ text, context }) => {
+    function emitAiFailure(generation, error) {
+      const reply = error instanceof LocalAiError
+        ? error.message
+        : 'Ocurrió un error al procesar tu instrucción con la IA.';
+      if (!(error instanceof LocalAiError)) {
+        console.error(String(error && error.message || 'error').slice(0, 180));
+      }
+      socket.emit('ai:result', { reply, skipped: [], warnings: [], appliedCount: 0, generation });
+    }
+
+    socket.on('ai:command', async ({ text, generation }) => {
       if (!currentShareToken) return;
       try {
-        const { reply, operations } = await runDiagramAgent(text, context);
-        const skipped = [];
-        for (const op of operations) {
-          const result = await applyAiOperation(io, buildCtx(false), op, context);
-          if (!result.ok) skipped.push(result.message);
+        const result = await createDiagramProposal({
+          userId,
+          shareToken: currentShareToken,
+          text,
+        });
+        if (!result.proposal) {
+          socket.emit('ai:result', {
+            reply: result.reply,
+            skipped: [],
+            warnings: result.warnings,
+            appliedCount: 0,
+            generation,
+            needsClarification: Boolean(result.needsClarification),
+          });
+          return;
         }
-        socket.emit('ai:result', { reply, skipped });
-      } catch (err) {
-        console.error(err.message);
-        socket.emit('ai:result', { reply: 'Ocurrió un error al procesar tu instrucción con la IA.', skipped: [] });
+        socket.emit('ai:proposal', { ...result.proposal, generation });
+      } catch (error) {
+        emitAiFailure(generation, error);
       }
+    });
+
+    socket.on('ai:apply', async ({ proposalId, fingerprint, generation }) => {
+      if (!currentShareToken) return;
+      try {
+        if (typeof fingerprint !== 'string' || !fingerprint) {
+          socket.emit('ai:result', {
+            reply: 'No pude comprobar la versión del diagrama. Vuelve a pedir el análisis.',
+            skipped: [],
+            warnings: [],
+            appliedCount: 0,
+            generation,
+          });
+          return;
+        }
+        const pending = proposalStore.read(proposalId, userId, currentShareToken);
+        if (!pending) {
+          socket.emit('ai:result', {
+            reply: 'La propuesta ya no está disponible. Pide el análisis otra vez.',
+            skipped: [],
+            warnings: [],
+            appliedCount: 0,
+            generation,
+          });
+          return;
+        }
+        const diagram = await diagramsRepository.findByToken(currentShareToken);
+        const currentFingerprint = diagram ? fingerprintOf(snapshotFromGraph(diagram.graph_data)) : '';
+        if (currentFingerprint !== pending.fingerprint || fingerprint !== pending.fingerprint) {
+          proposalStore.discard(proposalId, userId, currentShareToken);
+          socket.emit('ai:result', {
+            reply: 'El diagrama cambió mientras se preparaba la propuesta. Vuelve a pedir el análisis.',
+            skipped: [],
+            warnings: [],
+            appliedCount: 0,
+            generation,
+          });
+          return;
+        }
+        const proposal = proposalStore.take(proposalId, userId, currentShareToken);
+        if (!proposal) {
+          socket.emit('ai:result', {
+            reply: 'La propuesta ya no está disponible. Pide el análisis otra vez.',
+            skipped: [],
+            warnings: [],
+            appliedCount: 0,
+            generation,
+          });
+          return;
+        }
+        const authorAlsoReceives = buildCtx(false);
+        const applied = await applyPreparedSteps(io, authorAlsoReceives, proposal.prepared);
+        const stoppedEarly = applied.skipped.length > 0;
+        const reply = stoppedEarly
+          ? 'Se aplicaron ' + applied.appliedCount + ' cambios y el resto se detuvo.'
+          : 'Apliqué ' + applied.appliedCount + ' cambios en la sala.';
+        socket.emit('ai:result', {
+          reply,
+          skipped: applied.skipped,
+          warnings: [],
+          appliedCount: applied.appliedCount,
+          generation,
+        });
+      } catch (error) {
+        emitAiFailure(generation, error);
+      }
+    });
+
+    socket.on('ai:cancel', ({ proposalId }) => {
+      if (!currentShareToken || !proposalId) return;
+      proposalStore.discard(proposalId, userId, currentShareToken);
     });
 
     socket.on('graph:save', async ({ graphJson }, ack) => {
@@ -191,93 +285,6 @@ function attachSockets(io, sessionMiddleware) {
       }
     });
   });
-}
-
-// ---------- Resolución de operaciones de la IA (nombres -> IDs) ----------
-
-function generateId(prefix) {
-  return prefix + '_' + Math.random().toString(36).substr(2, 9);
-}
-
-function findClassByName(context, name) {
-  if (!name) return null;
-  const target = name.trim().toLowerCase();
-  return (context.classes || []).find((c) => c.name.trim().toLowerCase() === target) || null;
-}
-
-function findLinkByNames(context, relationType, sourceName, targetName) {
-  const source = findClassByName(context, sourceName);
-  const target = findClassByName(context, targetName);
-  if (!source || !target) return null;
-  return (context.relations || []).find(
-    (r) => r.type === relationType && r.sourceId === source.id && r.targetId === target.id
-  ) || null;
-}
-
-async function applyAiOperation(io, ctx, op, context) {
-  switch (op.op) {
-    case 'class:add': {
-      if (!op.className) return { ok: false, message: 'La IA no indicó el nombre de la clase a crear.' };
-      const data = {
-        elementId: generateId('class'),
-        name: op.className,
-        stereotype: op.stereotype || 'none',
-        attributes: op.attributes || [],
-        methods: op.methods || [],
-        position: { x: 80 + Math.round(Math.random() * 300), y: 60 + Math.round(Math.random() * 300) },
-      };
-      const result = await mutations.applyClassAdd(io, ctx, data);
-      return result.ok ? result : { ok: false, message: `No pude crear "${op.className}": ${result.message}` };
-    }
-    case 'class:update': {
-      const existing = findClassByName(context, op.className);
-      if (!existing) return { ok: false, message: `No encontré la clase "${op.className}".` };
-      const patch = {};
-      if (op.newClassName) patch.name = op.newClassName;
-      if (op.stereotype) patch.stereotype = op.stereotype;
-      if (op.attributes) patch.attributes = op.attributes;
-      if (op.methods) patch.methods = op.methods;
-      const result = await mutations.applyClassUpdate(io, ctx, { elementId: existing.id, patch });
-      return result.ok ? result : { ok: false, message: `No pude actualizar "${op.className}": ${result.message}` };
-    }
-    case 'class:remove': {
-      const existing = findClassByName(context, op.className);
-      if (!existing) return { ok: false, message: `No encontré la clase "${op.className}" para eliminar.` };
-      return mutations.applyClassRemove(io, ctx, { elementId: existing.id });
-    }
-    case 'link:add': {
-      const source = findClassByName(context, op.className);
-      const target = findClassByName(context, op.targetClassName);
-      if (!source || !target) {
-        return { ok: false, message: `No pude crear la relación: clase(s) "${op.className}"/"${op.targetClassName}" no encontradas.` };
-      }
-      const data = {
-        linkId: generateId('link'),
-        type: op.relationType,
-        sourceId: source.id,
-        targetId: target.id,
-        sourceMultiplicity: op.sourceMultiplicity,
-        targetMultiplicity: op.targetMultiplicity,
-      };
-      const result = await mutations.applyLinkAdd(io, ctx, data);
-      return result.ok ? result : { ok: false, message: `No pude crear la relación: ${result.message}` };
-    }
-    case 'link:update': {
-      const link = findLinkByNames(context, op.relationType, op.className, op.targetClassName);
-      if (!link) return { ok: false, message: `No encontré la relación ${op.relationType} entre "${op.className}" y "${op.targetClassName}".` };
-      const patch = {};
-      if (op.sourceMultiplicity !== undefined) patch.sourceMultiplicity = op.sourceMultiplicity;
-      if (op.targetMultiplicity !== undefined) patch.targetMultiplicity = op.targetMultiplicity;
-      return mutations.applyLinkUpdate(io, ctx, { linkId: link.id, patch });
-    }
-    case 'link:remove': {
-      const link = findLinkByNames(context, op.relationType, op.className, op.targetClassName);
-      if (!link) return { ok: false, message: `No encontré la relación ${op.relationType} entre "${op.className}" y "${op.targetClassName}" para eliminar.` };
-      return mutations.applyLinkRemove(io, ctx, { linkId: link.id });
-    }
-    default:
-      return { ok: false, message: `Operación desconocida: ${op.op}` };
-  }
 }
 
 module.exports = attachSockets;

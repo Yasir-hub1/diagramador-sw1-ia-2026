@@ -141,17 +141,45 @@
   </div>
 
   <div class="modal-overlay" id="modalAI">
-    <div class="modal-box modal-ai" role="dialog" aria-labelledby="modalAiTitle">
-      <h3 id="modalAiTitle">Dibujar con la IA</h3>
-      <div id="aiChatLog"></div>
+    <div class="modal-box modal-ai" role="dialog" aria-modal="true" aria-labelledby="modalAiTitle" aria-describedby="aiHint">
+      <h3 id="modalAiTitle">Pedir un cambio al diagrama</h3>
+      <div id="aiChatLog" aria-live="polite"></div>
+      <div id="aiAttachment" class="ai-attachment" hidden>
+        <img id="aiAttachmentPreview" alt="Vista previa del diagrama adjunto">
+        <div class="ai-attachment__meta">
+          <p id="aiAttachmentName"></p>
+          <p id="aiAttachmentSize"></p>
+        </div>
+        <button type="button" id="aiAttachmentRemove">Quitar</button>
+      </div>
+      <p id="aiStatus" class="ai-status" role="status" hidden></p>
+      <section id="aiProposal" class="ai-proposal" aria-label="Propuesta de la IA" hidden>
+        <p class="ai-proposal__kicker">Cambio propuesto</p>
+        <p id="aiProposalMessage"></p>
+        <p class="ai-proposal__kicker ai-proposal__kicker--ops">Cambios a aplicar</p>
+        <ol id="aiProposalOps"></ol>
+        <div id="aiProposalWarningBlock">
+          <p class="ai-proposal__kicker">Para revisar</p>
+          <ul id="aiProposalWarnings"></ul>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="cancel" id="aiProposalCancel">Cancelar</button>
+          <button type="button" class="save" id="aiProposalApply">Aplicar en la sala</button>
+        </div>
+      </section>
       <div class="ai-input-row">
-        <input type="text" id="aiTextInput" placeholder="Ej: crea una clase Usuario con atributos nombre y email" autocomplete="off">
-        <button type="button" id="aiMicBtn" title="Mantén presionado para grabar" aria-label="Grabar voz">
+        <label class="ai-file" id="aiImageLabel">
+          <input type="file" id="aiImageInput" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 9.2 12.2 5a2.4 2.4 0 0 1 3.4 3.4l-5.8 5.8a3.2 3.2 0 0 1-4.5-4.5l5.5-5.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span class="visually-hidden">Adjuntar imagen</span>
+        </label>
+        <input type="text" id="aiTextInput" placeholder="Ej: Cliente realiza Pedido con varios Productos" autocomplete="off" aria-describedby="aiHint">
+        <button type="button" id="aiMicBtn" title="Mantén presionado para dictar. La transcripción usa internet." aria-label="Grabar voz">
           <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="2.5" width="6" height="9" rx="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4.5 9.5a5.5 5.5 0 0 0 11 0M10 15v2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
         </button>
         <button type="button" id="aiSendBtn">Enviar</button>
       </div>
-      <div class="ai-hint">Escribe o mantén el micrófono. La IA crea, edita o borra clases, atributos, métodos y vínculos.</div>
+      <p class="ai-hint" id="aiHint"><% if (aiProvider === 'openai') { %>El arquitecto UML usa OpenAI. Propone un parche y espera a que lo apliques. Escribe, adjunta una imagen o dicta.<% } else { %>El arquitecto UML usa el modelo local. Propone un parche y espera a que lo apliques. Escribe o adjunta una imagen. El micrófono necesita una clave de OpenAI.<% } %></p>
       <div class="modal-actions">
         <button type="button" class="cancel" data-close="modalAI">Cerrar</button>
       </div>
@@ -185,11 +213,14 @@
       shareToken: <%- JSON.stringify(shareToken) %>,
       userId: <%- JSON.stringify(userId) %>,
       userName: <%- JSON.stringify(userName) %>,
-      initialGraph: <%- JSON.stringify(graphData) %>
+      initialGraph: <%- JSON.stringify(graphData) %>,
+      aiMaxImageBytes: <%- JSON.stringify(aiMaxImageBytes) %>,
+      aiProvider: <%- JSON.stringify(aiProvider) %>
     };
     window.Toast.fromFlash(<%- JSON.stringify(typeof flash !== 'undefined' ? flash : null) %>);
   </script>
   <script src="/room.js"></script>
+  <script src="/diagram-snapshot.js"></script>
   <script src="/ai-assistant.js"></script>
 </body>
 </html>

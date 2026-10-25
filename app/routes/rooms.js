@@ -5,6 +5,8 @@ const { requireAuth } = require('../middleware/auth');
 const diagramsRepository = require('../repositories/diagramsRepository');
 const { exportToXmi } = require('../xmi/exportXmi');
 const { importFromXmi } = require('../xmi/importXmi');
+const { maxImageBytes } = require('../ai/imageFile');
+const { diagramProvider } = require('../ai/settings');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 const router = express.Router();
@@ -71,6 +73,8 @@ router.get('/room/:token', requireAuth, async (req, res) => {
       userId: req.session.userId,
       userName: req.session.userName,
       graphData: diagram.graph_data,
+      aiMaxImageBytes: maxImageBytes(),
+      aiProvider: diagramProvider(),
     });
   } catch (err) {
     console.error(err.message);

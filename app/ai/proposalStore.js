@@ -1,0 +1,66 @@
+const crypto = require('crypto');
+
+const TTL_MS = 10 * 60 * 1000;
+const proposals = new Map();
+
+function prune(now) {
+  for (const [id, proposal] of proposals) {
+    if (proposal.expiresAt <= now) proposals.delete(id);
+  }
+  while (proposals.size > 100) {
+    const oldestId = proposals.keys().next().value;
+    proposals.delete(oldestId);
+  }
+}
+
+function matches(proposal, userId, shareToken) {
+  return proposal.userId === String(userId) && proposal.shareToken === shareToken;
+}
+
+function save({ userId, shareToken, fingerprint, message, warnings, prepared }) {
+  const now = Date.now();
+  prune(now);
+  const proposal = {
+    id: crypto.randomUUID(),
+    userId: String(userId),
+    shareToken,
+    fingerprint,
+    message,
+    warnings,
+    prepared,
+    expiresAt: now + TTL_MS,
+  };
+  proposals.set(proposal.id, proposal);
+  return proposal;
+}
+
+function read(id, userId, shareToken) {
+  prune(Date.now());
+  const proposal = proposals.get(id);
+  if (!proposal || !matches(proposal, userId, shareToken)) return null;
+  return proposal;
+}
+
+function take(id, userId, shareToken) {
+  const proposal = read(id, userId, shareToken);
+  if (!proposal) return null;
+  proposals.delete(id);
+  return proposal;
+}
+
+function discard(id, userId, shareToken) {
+  const proposal = read(id, userId, shareToken);
+  if (proposal) proposals.delete(id);
+}
+
+function toClient(proposal) {
+  return {
+    proposalId: proposal.id,
+    message: proposal.message,
+    warnings: proposal.warnings,
+    preview: proposal.prepared.map((step) => step.preview),
+    expiresAt: new Date(proposal.expiresAt).toISOString(),
+  };
+}
+
+module.exports = { save, read, take, discard, toClient };

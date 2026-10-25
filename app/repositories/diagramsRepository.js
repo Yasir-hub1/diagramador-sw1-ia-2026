@@ -57,6 +57,15 @@ async function logActivity({ diagramId, userId, userName, actionType, elementId,
   );
 }
 
+async function userCanAccess(diagramId, ownerId, userId) {
+  if (String(ownerId) === String(userId)) return true;
+  const result = await pool.query(
+    `SELECT 1 FROM diagram_collaborators WHERE diagram_id = $1 AND user_id = $2`,
+    [diagramId, userId]
+  );
+  return result.rowCount > 0;
+}
+
 async function getLastEditors(diagramId) {
   const result = await pool.query(
     `SELECT DISTINCT ON (element_id) element_id, user_name, created_at
@@ -78,6 +87,7 @@ module.exports = {
   findByToken,
   updateGraphData,
   upsertCollaborator,
+  userCanAccess,
   logActivity,
   getLastEditors,
 };
