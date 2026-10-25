@@ -90,7 +90,8 @@ $(document).ready(function () {
   function hideProposal() {
     pendingProposalId = null;
     $("#aiProposal").prop("hidden", true);
-    $("#aiProposalOps, #aiProposalWarnings").empty();
+    $("#aiProposalTypesBlock").prop("hidden", true);
+    $("#aiProposalOps, #aiProposalWarnings, #aiProposalTypes").empty();
     $("#aiProposalMessage").text("");
   }
 
@@ -107,6 +108,10 @@ $(document).ready(function () {
     (proposal.preview || []).forEach((line) => {
       $ops.append($("<li>").text(line));
     });
+    const typeNotes = proposal.typeNotes || [];
+    const $types = $("#aiProposalTypes").empty();
+    typeNotes.forEach((line) => $types.append($("<li>").text(line)));
+    $("#aiProposalTypesBlock").prop("hidden", typeNotes.length === 0);
     const warnings = proposal.warnings || [];
     const $warnings = $("#aiProposalWarnings").empty();
     warnings.forEach((line) => $warnings.append($("<li>").text(line)));

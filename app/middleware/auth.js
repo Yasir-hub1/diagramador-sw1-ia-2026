@@ -9,7 +9,7 @@ function requireAuth(req, res, next) {
 
 function requireApiAuth(req, res, next) {
   if (!req.session || !req.session.userId) {
-    return res.status(401).json({ error: 'Inicia sesión para usar la IA.' });
+    return res.status(401).json({ error: 'Inicia sesión para continuar.' });
   }
   next();
 }

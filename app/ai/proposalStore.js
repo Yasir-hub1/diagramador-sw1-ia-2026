@@ -17,7 +17,7 @@ function matches(proposal, userId, shareToken) {
   return proposal.userId === String(userId) && proposal.shareToken === shareToken;
 }
 
-function save({ userId, shareToken, fingerprint, message, warnings, prepared }) {
+function save({ userId, shareToken, fingerprint, message, warnings, prepared, typeNotes }) {
   const now = Date.now();
   prune(now);
   const proposal = {
@@ -27,6 +27,7 @@ function save({ userId, shareToken, fingerprint, message, warnings, prepared }) 
     fingerprint,
     message,
     warnings,
+    typeNotes: typeNotes || [],
     prepared,
     expiresAt: now + TTL_MS,
   };
@@ -58,6 +59,7 @@ function toClient(proposal) {
     proposalId: proposal.id,
     message: proposal.message,
     warnings: proposal.warnings,
+    typeNotes: proposal.typeNotes || [],
     preview: proposal.prepared.map((step) => step.preview),
     expiresAt: new Date(proposal.expiresAt).toISOString(),
   };

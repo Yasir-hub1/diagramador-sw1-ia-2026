@@ -1,4 +1,5 @@
 const validators = require('../../public/uml-validators');
+const semantics = require('../../public/attribute-semantics');
 const { maxOperations } = require('./settings');
 
 const ALLOWED_KEYS = {
@@ -556,7 +557,64 @@ function interpretModelPayload(payload, snapshot, options = {}) {
   if (operations.length > 0 && prepared.length === 0) {
     return invalid(warnings[0] || 'No pude convertir la respuesta en cambios del diagrama.', warnings.slice(1));
   }
-  return { reply, warnings: warnings.slice(0, 8), prepared };
+  const typeNotes = applyAttributeSemantics(prepared, working);
+  return { reply, warnings: warnings.slice(0, 8), prepared, typeNotes: typeNotes.slice(0, 12) };
+}
+
+function applyAttributeSemantics(prepared, working) {
+  const notes = [];
+  const classNames = working.classes.map((item) => item.name);
+  prepared.slice().forEach((step) => {
+    if (step.event === 'class:add') {
+      const refined = semantics.refineAttributeLines(step.data.name, step.data.attributes || [], classNames);
+      step.data.attributes = refined.attributes;
+      const box = working.classes.find((item) => item.id === step.data.elementId);
+      if (box) box.attributes = refined.attributes;
+      notes.push(...refined.notes);
+      refined.relations.forEach((relation) => addSemanticLink(prepared, working, relation, notes));
+    }
+    if (step.event === 'class:update' && step.data.patch && step.data.patch.attributes) {
+      const box = working.classes.find((item) => item.id === step.data.elementId);
+      const className = box ? box.name : '';
+      const refined = semantics.refineAttributeLines(className, step.data.patch.attributes, classNames);
+      step.data.patch.attributes = refined.attributes;
+      if (box) box.attributes = refined.attributes;
+      notes.push(...refined.notes);
+      refined.relations.forEach((relation) => addSemanticLink(prepared, working, relation, notes));
+    }
+  });
+  return notes;
+}
+
+function addSemanticLink(prepared, working, relation, notes) {
+  if (!relation.target) {
+    notes.push(
+      '«' + relation.attribute + '» parece una lista, pero no hay una clase destino clara. No se persistió como columna.'
+    );
+    return;
+  }
+  const already = working.relations.some(
+    (item) =>
+      (item.sourceName === relation.source && item.targetName === relation.target) ||
+      (item.sourceName === relation.target && item.targetName === relation.source)
+  );
+  if (already) return;
+  const planned = planLinkAdd(
+    {
+      op: 'link:add',
+      className: relation.source,
+      targetClassName: relation.target,
+      relationType: 'association',
+      sourceMultiplicity: '1',
+      targetMultiplicity: '0..*',
+    },
+    working
+  );
+  if (!planned.ok) {
+    notes.push(planned.message);
+    return;
+  }
+  prepared.push(planned.value);
 }
 
 module.exports = { interpretModelPayload, normalizeAttribute, normalizeMethod };

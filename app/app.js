@@ -8,7 +8,9 @@ const sessionMiddleware = require('./session');
 const roomsRouter = require('./routes/rooms');
 const voiceRouter = require('./routes/voice');
 const aiRouter = require('./routes/ai');
+const backendRouter = require('./routes/backend');
 const attachSockets = require('./sockets');
+const { attachGenerationIo } = require('./generation/bus');
 const { diagramProvider } = require('./ai/settings');
 
 const app = express();
@@ -116,9 +118,11 @@ app.use('/', roomsRouter);
 // Rutas de IA: diagramas según OPENAI_API_KEY; la voz usa Whisper si hay clave.
 app.use('/', voiceRouter);
 app.use('/', aiRouter);
+app.use('/', backendRouter);
 
 // Sockets de colaboración en tiempo real
 attachSockets(io, sessionMiddleware);
+attachGenerationIo(io);
 
 // Servidor en el puerto 3001
 const PORT = 3001;

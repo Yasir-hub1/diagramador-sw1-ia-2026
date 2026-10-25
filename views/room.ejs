@@ -30,11 +30,13 @@
 
       <button type="button" id="shareRoomBtn" class="share">Invitar a la sala</button>
       <button type="button" id="aiAssistantBtn" class="ai">Pedirle a la IA</button>
+      <button type="button" id="backendGenerateBtn" class="backend">Generar backend</button>
       <a class="tool-link" href="/room/<%= shareToken %>/export.xmi">Descargar XMI</a>
 
       <div class="toolbar-section">
         <h2>Piezas</h2>
         <button type="button" id="addUserClass">Nueva clase</button>
+        <button type="button" id="clearBoardBtn">Vaciar pizarra</button>
       </div>
 
       <div class="toolbar-section">
@@ -158,6 +160,10 @@
         <p id="aiProposalMessage"></p>
         <p class="ai-proposal__kicker ai-proposal__kicker--ops">Cambios a aplicar</p>
         <ol id="aiProposalOps"></ol>
+        <div id="aiProposalTypesBlock" hidden>
+          <p class="ai-proposal__kicker">Por qué estos tipos</p>
+          <ul id="aiProposalTypes"></ul>
+        </div>
         <div id="aiProposalWarningBlock">
           <p class="ai-proposal__kicker">Para revisar</p>
           <ul id="aiProposalWarnings"></ul>
@@ -186,6 +192,67 @@
     </div>
   </div>
 
+  <div class="modal-overlay" id="modalBackend">
+    <div class="modal-box modal-backend" role="dialog" aria-modal="true" aria-labelledby="modalBackendTitle" aria-describedby="backendHint">
+      <h3 id="modalBackendTitle">Generar backend Spring Boot</h3>
+      <p class="backend-lead">TRAZO lee las clases de esta sala, arma OpenAPI y escribe un proyecto Maven. La IA solo revisa; no inventa Java.</p>
+      <form id="backendForm">
+        <label for="backendDatabase">Base de datos</label>
+        <select id="backendDatabase">
+          <option value="h2">H2 en memoria</option>
+          <option value="postgresql">PostgreSQL</option>
+        </select>
+        <label class="backend-check">
+          <input type="checkbox" id="backendUseAi">
+          Pedir revisión de la IA (avisos, no código)
+        </label>
+        <p class="ai-hint" id="backendHint">El ZIP incluye controllers, services, repositories, DTOs, application.yml y openapi.yaml. Arrancar la API necesita Java 17 y Maven en esta máquina.</p>
+        <p id="backendTools" class="ai-hint" hidden></p>
+        <div class="modal-actions">
+          <button type="button" class="cancel" data-close="modalBackend">Cerrar</button>
+          <button type="submit" class="save" id="backendStartBtn">Generar ZIP</button>
+        </div>
+      </form>
+      <p id="backendStatus" class="ai-status" role="status" hidden></p>
+      <ol id="backendSteps" class="backend-steps" hidden></ol>
+      <ul id="backendWarnings" class="backend-warnings" hidden></ul>
+      <section id="backendTypes" class="backend-preview" hidden>
+        <p class="ai-proposal__kicker">Por qué estos tipos</p>
+        <ul id="backendTypeList"></ul>
+      </section>
+      <section id="backendChanges" class="backend-preview" hidden>
+        <p class="ai-proposal__kicker">Cambios respecto a la última generación</p>
+        <ul id="backendChangeList"></ul>
+      </section>
+      <section id="backendPreview" class="backend-preview" hidden>
+        <p class="ai-proposal__kicker">Entidades</p>
+        <ul id="backendEntities"></ul>
+        <div class="modal-actions backend-run-actions">
+          <a class="save" id="backendDownload" href="#" hidden>Descargar ZIP</a>
+          <button type="button" class="save" id="backendRunBtn" hidden>Arrancar API</button>
+          <button type="button" class="cancel" id="backendStopBtn" hidden>Detener</button>
+          <a class="save" id="backendSwagger" href="#" target="_blank" rel="noopener" hidden>Abrir Swagger</a>
+        </div>
+      </section>
+      <section id="backendTester" class="backend-tester" hidden>
+        <p class="ai-proposal__kicker">Probar API</p>
+        <div class="backend-tester-row">
+          <select id="backendMethod">
+            <option>GET</option>
+            <option>POST</option>
+            <option>PUT</option>
+            <option>DELETE</option>
+          </select>
+          <input type="text" id="backendPath" placeholder="/api/usuarios" autocomplete="off">
+          <button type="button" class="save" id="backendSendBtn">Enviar</button>
+        </div>
+        <textarea id="backendBody" rows="4" placeholder='{"nombre":"Ana"}'></textarea>
+        <pre id="backendResponse" class="backend-response" hidden></pre>
+        <pre id="backendLogs" class="backend-logs" hidden></pre>
+      </section>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="modalMultiplicity">
     <div class="modal-box" role="dialog" aria-labelledby="modalMultTitle">
       <h3 id="modalMultTitle">Cuántos en cada extremo</h3>
@@ -208,6 +275,7 @@
   <script src="/socket.io/socket.io.js"></script>
   <script src="/toast.js"></script>
   <script src="/uml-validators.js"></script>
+  <script src="/attribute-semantics.js"></script>
   <script>
     window.ROOM = {
       shareToken: <%- JSON.stringify(shareToken) %>,
@@ -222,5 +290,6 @@
   <script src="/room.js"></script>
   <script src="/diagram-snapshot.js"></script>
   <script src="/ai-assistant.js"></script>
+  <script src="/backend-generator.js"></script>
 </body>
 </html>

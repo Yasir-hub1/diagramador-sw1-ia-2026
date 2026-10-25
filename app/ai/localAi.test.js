@@ -100,8 +100,42 @@ test('completes an attribute or method when the type is missing', () => {
     },
     emptyDiagram()
   );
-  assert.equal(result.prepared[0].data.attributes[0], '+ edad: string');
+  assert.equal(result.prepared[0].data.attributes[0], '+ edad: Integer');
   assert.equal(result.prepared[0].data.methods[0], '+ guardar(): void');
+  assert.match(result.typeNotes[0], /Integer/);
+});
+
+test('corrects phone numbers to String and lists to associations', () => {
+  const result = interpretModelPayload(
+    {
+      message: 'Modelo de universidad.',
+      operations: [
+        {
+          op: 'class:add',
+          className: 'Person',
+          attributes: ['- id: Long', '+ phoneNumber: Double'],
+        },
+        {
+          op: 'class:add',
+          className: 'Student',
+          attributes: ['- id: Long', '+ studentNumber: Double'],
+        },
+        {
+          op: 'class:add',
+          className: 'Professor',
+          attributes: ['- id: Long', '+ listOfStudents: String'],
+        },
+      ],
+    },
+    emptyDiagram()
+  );
+  const person = result.prepared.find((step) => step.data && step.data.name === 'Person');
+  const professor = result.prepared.find((step) => step.data && step.data.name === 'Professor');
+  const link = result.prepared.find((step) => step.event === 'link:add');
+  assert.equal(person.data.attributes[1], '+ phoneNumber: String');
+  assert.ok(professor.data.attributes.every((line) => !/listOfStudents/.test(line)));
+  assert.equal(link.data.type, 'association');
+  assert.match(result.typeNotes.join('\n'), /teléfono|telefono|String/i);
 });
 
 test('keeps valid operations and warns about the ones that fail', () => {

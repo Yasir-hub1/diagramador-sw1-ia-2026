@@ -659,9 +659,118 @@ $(document).ready(function () {
 
   $("#addUserClass").on("click", function () {
     const elementId = generateId("class");
-    const data = { elementId, name: "Clase", stereotype: "none", attributes: [], methods: [], position: { x: 100, y: 50 } };
+    const data = {
+      elementId,
+      name: "Clase",
+      stereotype: "none",
+      attributes: ["- id: Long"],
+      methods: [],
+      position: { x: 100, y: 50 },
+    };
     createClassElement(data);
     socket.emit("class:add", data);
+  });
+
+  function hasIdAttribute(lines) {
+    return (lines || []).some((line) => {
+      const text = String(line || "").trim();
+      return /^[+\-#~]\s*id\s*:/i.test(text) || /^id\s*:/i.test(text);
+    });
+  }
+
+  function ensureClassIdsOnCanvas() {
+    let added = 0;
+    graph.getElements().forEach((cell) => {
+      if (cell.get("umlStereotype") === "interface") return;
+      const lines = (cell.get("umlAttributes") || []).slice();
+      const loose = lines.findIndex((line) => /^id\s*:/i.test(String(line).trim()) && !/^[+\-#~]/.test(String(line).trim()));
+      if (loose >= 0) {
+        const type = String(lines[loose].split(":")[1] || "Long").trim() || "Long";
+        lines[loose] = "- id: " + type;
+        applyClassPatch(cell, { attributes: lines });
+        socket.emit("class:update", { elementId: cell.id, patch: { attributes: lines } });
+        added += 1;
+        return;
+      }
+      if (hasIdAttribute(lines)) return;
+      lines.unshift("- id: Long");
+      applyClassPatch(cell, { attributes: lines });
+      socket.emit("class:update", { elementId: cell.id, patch: { attributes: lines } });
+      added += 1;
+    });
+    return added;
+  }
+
+  window.DiagramAPI.ensureClassIdsOnCanvas = ensureClassIdsOnCanvas;
+
+  function applyAttributeSemanticsOnCanvas() {
+    const semantics = window.AttributeSemantics;
+    if (!semantics) return { notes: [], changed: 0 };
+    const notes = [];
+    const classNames = graph.getElements().map((cell) => cell.get("umlName")).filter(Boolean);
+    const byName = {};
+    graph.getElements().forEach((cell) => {
+      if (cell.get("umlName")) byName[String(cell.get("umlName"))] = cell;
+    });
+    graph.getElements().forEach((cell) => {
+      const name = cell.get("umlName");
+      if (!name || cell.get("umlStereotype") === "interface") return;
+      const refined = semantics.refineAttributeLines(name, cell.get("umlAttributes") || [], classNames);
+      if (refined.attributes.join("\n") !== (cell.get("umlAttributes") || []).join("\n")) {
+        applyClassPatch(cell, { attributes: refined.attributes });
+        socket.emit("class:update", { elementId: cell.id, patch: { attributes: refined.attributes } });
+      }
+      notes.push.apply(notes, refined.notes);
+      refined.relations.forEach((relation) => {
+        const target = byName[relation.target];
+        if (!target) return;
+        const exists = graph.getLinks().some((link) => {
+          const source = link.getSourceElement();
+          const dest = link.getTargetElement();
+          return source && dest && (
+            (source.id === cell.id && dest.id === target.id) ||
+            (source.id === target.id && dest.id === cell.id)
+          );
+        });
+        if (exists) return;
+        const data = {
+          linkId: generateId("link"),
+          type: "association",
+          sourceId: cell.id,
+          targetId: target.id,
+          sourceMultiplicity: "1",
+          targetMultiplicity: "0..*",
+        };
+        createLinkElement(data);
+        socket.emit("link:add", data);
+      });
+    });
+    return { notes: notes, changed: notes.length };
+  }
+
+  window.DiagramAPI.applyAttributeSemanticsOnCanvas = applyAttributeSemanticsOnCanvas;
+
+  $("#clearBoardBtn").on("click", function () {
+    if (!graph.getCells().length) {
+      showToast("La pizarra ya está vacía", "info");
+      return;
+    }
+    if (!confirm("¿Vaciar la pizarra? Se borrarán todas las clases y los vínculos.")) return;
+    const links = graph.getLinks().slice();
+    const classes = graph.getElements().slice();
+    links.forEach((link) => {
+      const linkId = link.id;
+      link.remove();
+      socket.emit("link:remove", { linkId });
+    });
+    classes.forEach((cell) => {
+      const elementId = cell.id;
+      hideEditingBadge(elementId);
+      cell.remove();
+      socket.emit("class:remove", { elementId });
+    });
+    flushSave();
+    showToast("Pizarra vacía", "success");
   });
 
   // ---------- Notificar "moviendo" mientras se arrastra una clase ----------

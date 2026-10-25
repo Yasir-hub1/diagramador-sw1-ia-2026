@@ -55,6 +55,7 @@ async function createDiagramProposal({ userId, shareToken, text, imageBase64 }) 
     fingerprint: fingerprintOf(snapshot),
     message: interpreted.reply,
     warnings: interpreted.warnings,
+    typeNotes: interpreted.typeNotes || [],
     prepared: interpreted.prepared,
   });
   return {
