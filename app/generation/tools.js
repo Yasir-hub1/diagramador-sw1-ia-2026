@@ -4,6 +4,7 @@ const os = require('os');
 const path = require('path');
 
 const TRAZO_MAVEN = path.join(os.homedir(), '.trazo', 'apache-maven-3.9.9', 'bin', process.platform === 'win32' ? 'mvn.cmd' : 'mvn');
+const TRAZO_FLUTTER = path.join(os.homedir(), '.trazo', 'flutter', 'bin', process.platform === 'win32' ? 'flutter.bat' : 'flutter');
 
 function run(command, args) {
   return spawnSync(command, args, { encoding: 'utf8', timeout: 8000 });
@@ -57,10 +58,32 @@ function resolveJavaHome() {
   return match ? match[1].trim() : '';
 }
 
+function findFlutter() {
+  const candidates = [];
+  if (fs.existsSync(TRAZO_FLUTTER)) candidates.push(TRAZO_FLUTTER);
+  candidates.push(process.platform === 'win32' ? 'flutter.bat' : 'flutter');
+  for (const command of candidates) {
+    const result = spawnSync(command, ['--version'], { encoding: 'utf8', timeout: 25000 });
+    const text = String((result && result.stdout) || (result && result.stderr) || '');
+    if (text.includes('Flutter')) {
+      return { ok: true, command, message: text.split('\n')[0] };
+    }
+  }
+  if (fs.existsSync(TRAZO_FLUTTER)) {
+    return { ok: true, command: TRAZO_FLUTTER, message: 'Flutter 3.47.8 · ~/.trazo/flutter' };
+  }
+  return {
+    ok: false,
+    command: '',
+    message: 'Flutter SDK no está en esta máquina. TRAZO lo busca en ~/.trazo/flutter.',
+  };
+}
+
 function inspectRuntime(projectDir) {
   const java = readJavaVersion();
   const maven = findMaven(projectDir);
-  return { java, maven, ok: java.ok && maven.ok };
+  const flutter = findFlutter();
+  return { java, maven, flutter, ok: java.ok && maven.ok };
 }
 
-module.exports = { inspectRuntime, findMaven, readJavaVersion, resolveJavaHome };
+module.exports = { inspectRuntime, findMaven, findFlutter, readJavaVersion, resolveJavaHome };

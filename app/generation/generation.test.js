@@ -9,6 +9,7 @@ const { writeSpringFiles } = require('./writeSpringProject');
 const { diffUml } = require('./diffUml');
 const { proxyToGeneratedApi } = require('./apiProxy');
 const { LocalAiError } = require('../ai/errors');
+const { coerceField, payloadFromValues } = require('../../public/json-fields');
 
 function sampleSnapshot() {
   return {
@@ -133,6 +134,7 @@ test('builds CRUD endpoints and OpenAPI paths from UML', () => {
   assert.equal(users.endpoint, '/api/usuarios');
   assert.equal(users.endpoints.length, 5);
   const doc = buildOpenApiDocument(backend);
+  assert.ok(doc.paths['/api/health'].get);
   assert.ok(doc.paths['/api/usuarios'].get);
   assert.ok(doc.paths['/api/usuarios/{id}'].put);
   assert.ok(doc.components.schemas.Usuario.properties.email);
@@ -148,6 +150,28 @@ test('writes Spring controller and entity files', () => {
   assert.ok(names.some((name) => name.endsWith('/controller/PedidoController.java')));
   assert.ok(names.some((name) => name.endsWith('pom.xml')));
   assert.match(files[names.find((name) => name.endsWith('UsuarioController.java'))], /@RequestMapping\("\/api\/usuarios"\)/);
+  const usuario = files[names.find((name) => name.endsWith('/entity/Usuario.java'))];
+  assert.doesNotMatch(usuario, /@NotBlank/);
+  assert.doesNotMatch(usuario, /@NotNull/);
+  assert.match(files[names.find((name) => name.endsWith('ApiErrorHandler.java'))], /HttpMessageNotReadableException/);
+});
+
+test('coerces form text to Spring JSON types and omits blanks', () => {
+  assert.equal(coerceField('Integer', '21').value, 21);
+  assert.equal(coerceField('Boolean', 'true').value, true);
+  assert.equal(coerceField('Integer', '').omit, true);
+  assert.equal(coerceField('Double', 'x').error.includes('número'), true);
+  const payload = payloadFromValues(
+    [
+      { name: 'id', type: 'Long', primaryKey: true },
+      { name: 'nombre', type: 'String' },
+      { name: 'edad', type: 'Integer' },
+      { name: 'activo', type: 'Boolean' },
+    ],
+    { nombre: 'Ana', edad: '', activo: 'si' }
+  );
+  assert.equal(payload.ok, true);
+  assert.deepEqual(payload.body, { nombre: 'Ana', activo: true });
 });
 
 test('diffs added classes and attributes against the previous UML', () => {

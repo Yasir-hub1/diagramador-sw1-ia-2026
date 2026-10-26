@@ -13,8 +13,8 @@ function prune(now) {
   }
 }
 
-function matches(proposal, userId, shareToken) {
-  return proposal.userId === String(userId) && proposal.shareToken === shareToken;
+function matches(proposal, shareToken) {
+  return proposal.shareToken === shareToken;
 }
 
 function save({ userId, shareToken, fingerprint, message, warnings, prepared, typeNotes }) {
@@ -35,22 +35,22 @@ function save({ userId, shareToken, fingerprint, message, warnings, prepared, ty
   return proposal;
 }
 
-function read(id, userId, shareToken) {
+function read(id, shareToken) {
   prune(Date.now());
   const proposal = proposals.get(id);
-  if (!proposal || !matches(proposal, userId, shareToken)) return null;
+  if (!proposal || !matches(proposal, shareToken)) return null;
   return proposal;
 }
 
-function take(id, userId, shareToken) {
-  const proposal = read(id, userId, shareToken);
+function take(id, shareToken) {
+  const proposal = read(id, shareToken);
   if (!proposal) return null;
   proposals.delete(id);
   return proposal;
 }
 
-function discard(id, userId, shareToken) {
-  const proposal = read(id, userId, shareToken);
+function discard(id, shareToken) {
+  const proposal = read(id, shareToken);
   if (proposal) proposals.delete(id);
 }
 

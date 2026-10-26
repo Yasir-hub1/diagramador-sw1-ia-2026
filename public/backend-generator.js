@@ -24,6 +24,11 @@ $(document).ready(function () {
   }
 
   function renderSteps(active) {
+    const appReady = $("#flutterDownload").attr("href") && $("#flutterDownload").attr("href") !== "#";
+    if (appReady) {
+      $("#backendSteps").prop("hidden", true);
+      return;
+    }
     const $list = $("#backendSteps").prop("hidden", false).empty();
     steps.forEach(([code, label]) => {
       const $item = $("<li>").text(label);
@@ -79,11 +84,6 @@ $(document).ready(function () {
     $logs.prop("hidden", false).text(logs.slice(-40).join("\n"));
   }
 
-  function fillPaths(preview) {
-    const first = preview && preview.entities && preview.entities[0];
-    if (first && !$("#backendPath").val()) $("#backendPath").val(first.endpoint);
-  }
-
   function renderRuntime(job) {
     const runtime = job.runtime || {};
     const ready = job.status === "READY";
@@ -93,10 +93,9 @@ $(document).ready(function () {
     $("#backendStopBtn").prop("hidden", !running && !starting);
     if (running && runtime.swaggerUrl) {
       $("#backendSwagger").attr("href", runtime.swaggerUrl).prop("hidden", false);
-      $("#backendTester").prop("hidden", false);
+      if (runtime.baseUrl) $("#phoneLink").text(runtime.baseUrl.replace("http://", ""));
     } else {
       $("#backendSwagger").prop("hidden", true);
-      $("#backendTester").prop("hidden", !running);
     }
     renderLogs(job.logs);
     if (starting || running) startPolling();
@@ -120,7 +119,6 @@ $(document).ready(function () {
     } else {
       $download.prop("hidden", true);
     }
-    fillPaths(preview);
     renderRuntime(job);
   }
 
@@ -136,10 +134,10 @@ $(document).ready(function () {
     const running = job.status !== "READY" && job.status !== "ERROR";
     $("#backendStartBtn").prop("disabled", running);
     if (job.status === "ERROR" && window.Toast) {
-      window.Toast.error(job.message || "No se pudo generar el backend.");
+      window.Toast.error(job.message || "No se pudo generar el aplicativo.");
     }
-    if (options && options.toastReady && job.status === "READY" && window.Toast) {
-      window.Toast.success("Backend listo. Descarga el ZIP o arranca la API.");
+    if (job.status === "READY" && window.TrazoApp) {
+      window.TrazoApp.afterBackend(job);
     }
   }
 
@@ -166,14 +164,15 @@ $(document).ready(function () {
       if (!response.ok) return;
       const tools = await response.json();
       const lines = [];
-      if (tools.java) lines.push(tools.java.message);
-      if (tools.maven) lines.push(tools.maven.message);
-      $("#backendTools").prop("hidden", lines.length === 0).text(lines.join(" · "));
+      [tools.java, tools.maven, tools.flutter].forEach(function (tool) {
+        if (tool && !tool.ok) lines.push(tool.message);
+      });
+      $("#backendTools").prop("hidden", lines.length === 0).text(lines.join(" "));
     } catch (_error) {}
   }
 
-  $("#backendGenerateBtn").on("click", function () {
-    $("#modalBackend").addClass("visible");
+  $("#appGenerateBtn").on("click", function () {
+    $("#modalApp").addClass("visible");
     loadTools();
   });
 
@@ -198,7 +197,8 @@ $(document).ready(function () {
       return;
     }
     currentJobId = "";
-    $("#backendPreview, #backendSteps, #backendWarnings, #backendChanges, #backendTypes, #backendTester").prop("hidden", true);
+    $("#backendPreview, #backendSteps, #backendWarnings, #flutterSteps, #flutterWarnings, #flutterStatus, #flutterDownload").prop("hidden", true);
+    $("#flutterDownload").attr("href", "#");
     try {
       const response = await fetch("/api/backend/generate", {
         method: "POST",
@@ -252,31 +252,6 @@ $(document).ready(function () {
       credentials: "same-origin",
     });
     if (response.ok) applyJob(await response.json());
-  });
-
-  $("#backendSendBtn").on("click", async function () {
-    if (!currentJobId) return;
-    const $out = $("#backendResponse").prop("hidden", false).text("Enviando…");
-    try {
-      const response = await fetch("/api/backend/jobs/" + currentJobId + "/proxy", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({
-          method: $("#backendMethod").val(),
-          path: $("#backendPath").val(),
-          body: $("#backendBody").val(),
-        }),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        $out.text(payload.error || "La petición no se pudo enviar.");
-        return;
-      }
-      $out.text(payload.status + " " + (payload.contentType || "") + "\n\n" + (payload.body || ""));
-    } catch (_error) {
-      $out.text("La petición no se pudo enviar.");
-    }
   });
 
   if (socket) {

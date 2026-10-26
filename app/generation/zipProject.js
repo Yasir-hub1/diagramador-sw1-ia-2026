@@ -22,13 +22,13 @@ function writeFiles(files, rootDir) {
   });
 }
 
-function findMavenRoot(rootDir) {
-  if (fs.existsSync(path.join(rootDir, 'pom.xml'))) return rootDir;
+function findProjectRoot(rootDir, marker) {
+  if (fs.existsSync(path.join(rootDir, marker))) return rootDir;
   const entries = fs.readdirSync(rootDir, { withFileTypes: true });
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const candidate = path.join(rootDir, entry.name);
-    if (fs.existsSync(path.join(candidate, 'pom.xml'))) return candidate;
+    if (fs.existsSync(path.join(candidate, marker))) return candidate;
   }
   return rootDir;
 }
@@ -45,17 +45,20 @@ async function zipDirectory(sourceDir, zipPath) {
   });
 }
 
-async function packageProject(files, jobId) {
-  const rootDir = path.join(os.tmpdir(), 'trazo-backend-' + jobId);
+async function packageProject(files, jobId, options = {}) {
+  const prefix = options.prefix || 'trazo-backend';
+  const zipName = options.zipName || 'trazo-backend-project.zip';
+  const marker = options.marker || 'pom.xml';
+  const rootDir = path.join(os.tmpdir(), prefix + '-' + jobId);
   const zipPath = rootDir + '.zip';
   fs.rmSync(rootDir, { recursive: true, force: true });
   writeFiles(files, rootDir);
   await zipDirectory(rootDir, zipPath);
   return {
     rootDir,
-    projectDir: findMavenRoot(rootDir),
+    projectDir: findProjectRoot(rootDir, marker),
     zipPath,
-    zipName: 'trazo-backend-project.zip',
+    zipName,
     cleanup() {
       fs.rmSync(rootDir, { recursive: true, force: true });
       fs.rmSync(zipPath, { force: true });

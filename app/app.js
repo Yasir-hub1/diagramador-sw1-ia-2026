@@ -9,6 +9,7 @@ const roomsRouter = require('./routes/rooms');
 const voiceRouter = require('./routes/voice');
 const aiRouter = require('./routes/ai');
 const backendRouter = require('./routes/backend');
+const flutterRouter = require('./routes/flutter');
 const attachSockets = require('./sockets');
 const { attachGenerationIo } = require('./generation/bus');
 const { diagramProvider } = require('./ai/settings');
@@ -119,6 +120,7 @@ app.use('/', roomsRouter);
 app.use('/', voiceRouter);
 app.use('/', aiRouter);
 app.use('/', backendRouter);
+app.use('/', flutterRouter);
 
 // Sockets de colaboración en tiempo real
 attachSockets(io, sessionMiddleware);

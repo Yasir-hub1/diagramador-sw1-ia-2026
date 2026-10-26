@@ -9,20 +9,58 @@ $(document).ready(function () {
   let pendingProposalId = null;
   let attachedFile = null;
   let previewUrl = null;
+  let pendingSource = "text";
+  const seenMessageIds = new Set();
 
   function openModal() {
     $("#modalAI").addClass("visible");
     $("#aiTextInput").trigger("focus");
+    if (!seenMessageIds.size && api.ROOM && api.ROOM.shareToken) {
+      fetch("/api/ai/history?shareToken=" + encodeURIComponent(api.ROOM.shareToken), { credentials: "same-origin" })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data && data.messages) renderHistory(data.messages);
+        })
+        .catch(() => {});
+    }
   }
 
   $("#aiAssistantBtn").on("click", openModal);
 
-  function appendMessage(role, text, extraClass) {
+  function scrollChat() {
+    const log = document.getElementById("aiChatLog");
+    if (log) log.scrollTop = log.scrollHeight;
+  }
+
+  function appendLocal(role, text, extraClass) {
     const $msg = $("<div>").addClass("ai-msg " + role).text(text);
     if (extraClass) $msg.addClass(extraClass);
     $("#aiChatLog").append($msg);
-    const log = document.getElementById("aiChatLog");
-    log.scrollTop = log.scrollHeight;
+    scrollChat();
+  }
+
+  function appendMessage(message) {
+    if (!message || !message.id || seenMessageIds.has(String(message.id))) return;
+    seenMessageIds.add(String(message.id));
+    const mine = String(message.authorId) === String(api.ROOM.userId);
+    const role = message.role === "user" ? (mine ? "user mine" : "user") : message.role;
+    const $msg = $("<div>").addClass("ai-msg " + role);
+    if (message.role === "assistant" && message.kind === "question") $msg.addClass("is-question");
+    if (message.role !== "system" && message.authorName) {
+      $msg.append($("<span>").addClass("ai-msg__who").text(message.authorName));
+    }
+    $msg.append(document.createTextNode(message.text || ""));
+    $("#aiChatLog").append($msg);
+    scrollChat();
+  }
+
+  function renderHistory(messages) {
+    $("#aiChatLog").empty();
+    seenMessageIds.clear();
+    (messages || []).forEach(appendMessage);
+    if (!messages || !messages.length) {
+      appendLocal("system", "Este chat lo ven todos en la sala. Pueden revisar el UML, preguntar o pedir cambios.");
+    }
   }
 
   function setStatus(text) {
@@ -69,12 +107,12 @@ $(document).ready(function () {
   function setAttachment(file) {
     const maxBytes = Number(api.ROOM.aiMaxImageBytes) || 5242880;
     if (!fileLooksLikeImage(file)) {
-      appendMessage("system", "La imagen debe ser PNG, JPEG o WebP.");
+      appendLocal("system", "La imagen debe ser PNG, JPEG o WebP.");
       if (window.Toast) window.Toast.warning("La imagen debe ser PNG, JPEG o WebP.");
       return;
     }
     if (file.size > maxBytes) {
-      appendMessage("system", "La imagen supera el tamaño permitido.");
+      appendLocal("system", "La imagen supera el tamaño permitido.");
       if (window.Toast) window.Toast.warning("La imagen supera el tamaño permitido.");
       return;
     }
@@ -148,7 +186,7 @@ $(document).ready(function () {
 
   function showFailure(message) {
     finishWait();
-    appendMessage("system", message);
+    appendLocal("system", message);
     if (window.Toast) window.Toast.error(message);
   }
 
@@ -175,9 +213,9 @@ $(document).ready(function () {
       showFailure(saved.message || "No se pudo guardar el diagrama.");
       return;
     }
-    appendMessage("user", text);
     setStatus("Pensando");
-    socket.emit("ai:command", { text, generation: ticket });
+    socket.emit("ai:command", { text, generation: ticket, source: pendingSource });
+    pendingSource = "text";
   }
 
   async function submitImage(text, file, ticket) {
@@ -188,57 +226,66 @@ $(document).ready(function () {
       showFailure(saved.message || "No se pudo guardar el diagrama.");
       return;
     }
-    appendMessage("user", text ? text + "\n" + (file.name || "imagen") : file.name || "imagen");
     setStatus("Leyendo la imagen");
     const formData = new FormData();
     formData.append("image", file, file.name || "diagrama.png");
     formData.append("shareToken", api.ROOM.shareToken);
     formData.append("instruction", text);
     try {
-      const response = await fetch("/api/ai/image", { method: "POST", body: formData });
+      const response = await fetch("/api/ai/image", {
+        method: "POST",
+        body: formData,
+        credentials: "same-origin",
+      });
       const data = await response.json().catch(() => null);
       if (ticket !== generation) return;
       if (!response.ok) {
         showFailure((data && data.error) || "No se pudo analizar la imagen.");
         return;
       }
-      deliverResult(data, ticket);
+      if (data.proposal) {
+        finishWait();
+        setStatus("Revisa y aplica");
+        showProposal(data.proposal);
+      }
     } catch (error) {
       if (ticket !== generation) return;
       showFailure("No se pudo analizar la imagen.");
     }
   }
 
-  function deliverResult(data, ticket) {
-    if (ticket !== generation) return;
-    finishWait();
-    if (data.proposal) {
-      appendMessage("assistant", data.proposal.message || data.reply || "Hay una propuesta lista para aplicar.");
-      setStatus("Revisa y aplica");
-      showProposal(data.proposal);
-      return;
-    }
-    if (data.reply) {
-      appendMessage("assistant", data.reply, data.needsClarification ? "is-question" : "");
-    }
-    (data.warnings || []).forEach((warning) => appendMessage("system", warning));
-  }
+  socket.on("ai:history", function (data) {
+    renderHistory(data && data.messages);
+  });
 
-  socket.on("ai:proposal", (data) => deliverResult({ proposal: data, reply: data.message }, data.generation));
+  socket.on("ai:message", appendMessage);
 
-  socket.on("ai:result", (data) => {
-    if (data.generation !== generation) return;
+  socket.on("ai:busy", function (data) {
+    waitingForAi = true;
+    setBusy(true);
+    setStatus((data && data.authorName ? data.authorName + " consulta" : "Pensando") + "…");
+  });
+
+  socket.on("ai:idle", function () {
     finishWait();
-    hideProposal();
-    if (data.reply) {
-      appendMessage("assistant", data.reply, data.needsClarification ? "is-question" : "");
-    }
-    (data.warnings || []).forEach((warning) => appendMessage("system", warning));
+  });
+
+  socket.on("ai:proposal", function (data) {
+    finishWait();
+    setStatus("Hay una propuesta para toda la sala");
+    showProposal(data);
+  });
+
+  socket.on("ai:result", function (data) {
+    finishWait();
+    if (!data.appliedCount) hideProposal();
+    (data.warnings || []).forEach((warning) => appendLocal("system", warning));
     (data.skipped || []).forEach((reason) => {
-      appendMessage("system", reason);
+      appendLocal("system", reason);
       if (window.Toast) window.Toast.warning(reason);
     });
     if (data.appliedCount > 0) {
+      hideProposal();
       clearAttachment();
       if (!data.skipped || data.skipped.length === 0) {
         if (window.Toast) window.Toast.success("Cambios aplicados en la sala.");
@@ -277,7 +324,7 @@ $(document).ready(function () {
   $("#aiProposalCancel").on("click", function () {
     cancelPendingProposal();
     setStatus("");
-    appendMessage("system", "Propuesta cancelada.");
+    setStatus("");
   });
 
   $("#aiProposalApply").on("click", async function () {
@@ -333,7 +380,7 @@ $(document).ready(function () {
   function startRecording() {
     if (waitingForAi || holdToTalk) return;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      appendMessage("system", "Tu navegador no soporta grabación de audio.");
+      appendLocal("system", "Tu navegador no soporta grabación de audio.");
       if (window.Toast) window.Toast.warning("Tu navegador no soporta grabación de audio.");
       return;
     }
@@ -360,7 +407,7 @@ $(document).ready(function () {
           const durationMs = Date.now() - recordingStartedAt;
           if (durationMs < 400 || audioChunks.length === 0) {
             const msg = "La grabación fue muy corta. Mantén presionado el micrófono y dicta.";
-            appendMessage("system", msg);
+            appendLocal("system", msg);
             if (window.Toast) window.Toast.warning(msg);
             return;
           }
@@ -372,7 +419,7 @@ $(document).ready(function () {
       })
       .catch(() => {
         holdToTalk = false;
-        appendMessage("system", "No se pudo acceder al micrófono. Permite el acceso en el navegador e inténtalo de nuevo.");
+        appendLocal("system", "No se pudo acceder al micrófono. Permite el acceso en el navegador e inténtalo de nuevo.");
         if (window.Toast) window.Toast.error("No se pudo acceder al micrófono.");
       });
   }
@@ -385,24 +432,27 @@ $(document).ready(function () {
   }
 
   function transcribeAndSend(blob, mimeType) {
-    appendMessage("system", "Transcribiendo audio…");
+    setStatus("Transcribiendo audio");
     const formData = new FormData();
     formData.append("audio", blob, "voice." + extensionForMimeType(mimeType));
     fetch("/api/voice/transcribe", { method: "POST", body: formData, credentials: "same-origin" })
-      .then((res) => res.json().then((data) => ({ ok: res.ok, data })))
-      .then(({ data }) => {
+      .then((res) => res.json().then((data) => ({ ok: res.ok, data })).catch(() => ({ ok: false, data: null })))
+      .then(({ ok, data }) => {
         const text = data && typeof data.text === "string" ? data.text.trim() : "";
-        if (text) {
+        if (ok && text) {
+          pendingSource = "voice";
           $("#aiTextInput").val(text);
           submitInstruction();
           return;
         }
+        setStatus("");
         const msg = (data && data.error) || "No se pudo transcribir el audio.";
-        appendMessage("system", msg);
+        appendLocal("system", msg);
         if (window.Toast) window.Toast.error(msg);
       })
       .catch(() => {
-        appendMessage("system", "No se pudo transcribir el audio.");
+        setStatus("");
+        appendLocal("system", "No se pudo transcribir el audio.");
         if (window.Toast) window.Toast.error("No se pudo transcribir el audio.");
       });
   }
@@ -414,8 +464,8 @@ $(document).ready(function () {
     if (this.setPointerCapture) this.setPointerCapture(evt.pointerId);
     startRecording();
   });
-  $mic.on("pointerup pointercancel", function (evt) {
-    if (this.releasePointerCapture && this.hasPointerCapture && this.hasPointerCapture(evt.pointerId)) {
+  $mic.on("pointerup pointercancel lostpointercapture", function (evt) {
+    if (evt.type !== "lostpointercapture" && this.releasePointerCapture && this.hasPointerCapture && this.hasPointerCapture(evt.pointerId)) {
       this.releasePointerCapture(evt.pointerId);
     }
     stopRecording();

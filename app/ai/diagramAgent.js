@@ -49,30 +49,41 @@ function unreadReply(hasImage) {
   };
 }
 
-function buildTextPrompt(text, snapshot) {
+function buildTextPrompt(text, snapshot, extras = {}) {
   const packed = compactSnapshot(snapshot);
   const empty = packed.context.classes.length === 0;
+  const intent = extras.intent || 'modify';
+  const history = extras.history || '';
+  const opsHint =
+    intent === 'review' || intent === 'question'
+      ? 'intent=' + intent + '. operations debe ser []. Responde la consulta con el diagrama actual.'
+      : 'intent=' + intent + '. Devuelve message, operations y warnings. Incluye class:add y, si hay que relacionar, link:add.';
   return {
     prompt: [
+      history,
+      history ? '' : null,
       'Pedido:',
       text,
       '',
-      empty ? 'Diagrama actual: vacío. Crea desde cero.' : 'Diagrama actual:',
-      empty ? '' : JSON.stringify(packed.context),
+      opsHint,
       '',
-      'Devuelve message, operations y warnings. Incluye class:add y, si hay que relacionar, link:add.',
-    ].filter((line, index, lines) => line !== '' || lines[index - 1] !== '').join('\n'),
+      empty ? 'Diagrama actual: vacío.' + (intent === 'modify' || intent === 'sketch' ? ' Crea desde cero.' : '') : 'Diagrama actual:',
+      empty ? '' : JSON.stringify(packed.context),
+    ].filter((line, index, lines) => line !== null && (line !== '' || lines[index - 1] !== '')).join('\n'),
     truncated: packed.truncated,
   };
 }
 
-function buildImageNotesPrompt(text, snapshot, notes) {
+function buildImageNotesPrompt(text, snapshot, notes, extras = {}) {
   const packed = compactSnapshot(snapshot);
   return {
     prompt: [
+      extras.history || '',
+      extras.history ? '' : null,
       'Pedido:',
       text,
       '',
+      'intent=' + (extras.intent || 'sketch') + '.',
       'Notas de la imagen:',
       notes,
       '',
@@ -80,7 +91,7 @@ function buildImageNotesPrompt(text, snapshot, notes) {
       packed.context.classes.length ? JSON.stringify(packed.context) : '',
       '',
       'Convierte lo visible en operations TRAZO. No inventes clases que no estén en las notas.',
-    ].filter((line, index, lines) => line !== '' || lines[index - 1] !== '').join('\n'),
+    ].filter((line, index, lines) => line !== null && (line !== '' || lines[index - 1] !== '')).join('\n'),
     truncated: packed.truncated,
   };
 }
@@ -127,16 +138,16 @@ async function observeImage({ text, imageBase64 }) {
   });
 }
 
-async function runTextAgent({ text, snapshot }) {
-  const userPrompt = buildTextPrompt(text, snapshot);
+async function runTextAgent({ text, snapshot, history, intent }) {
+  const userPrompt = buildTextPrompt(text, snapshot, { history, intent });
   const reply = await askTrazoJson({ prompt: userPrompt.prompt });
   const payload = payloadFromReply(reply);
   if (!payload) return unreadReply(false);
-  return withTruncation(interpretReply(payload, snapshot), userPrompt.truncated);
+  return withTruncation(interpretReply(payload, snapshot, { intent, text }), userPrompt.truncated);
 }
 
-async function runOpenAiImageAgent({ text, snapshot, imageBase64 }) {
-  const userPrompt = buildTextPrompt(text, snapshot);
+async function runOpenAiImageAgent({ text, snapshot, imageBase64, history, intent }) {
+  const userPrompt = buildTextPrompt(text, snapshot, { history, intent: intent || 'sketch' });
   const reply = await askTrazoJson({
     prompt: [
       userPrompt.prompt,
@@ -150,23 +161,23 @@ async function runOpenAiImageAgent({ text, snapshot, imageBase64 }) {
   return withTruncation(interpretReply(payload, snapshot), userPrompt.truncated);
 }
 
-async function runImageAgent({ text, snapshot, imageBase64 }) {
-  if (usesOpenAiDiagrams()) return runOpenAiImageAgent({ text, snapshot, imageBase64 });
+async function runImageAgent({ text, snapshot, imageBase64, history, intent }) {
+  if (usesOpenAiDiagrams()) return runOpenAiImageAgent({ text, snapshot, imageBase64, history, intent });
   const seen = await observeImage({ text, imageBase64 });
   const notes = notesFromReply(seen);
   const fromNotes = usableProposal(sketchToOperations(sketchFromNotes(notes), snapshot));
   if (fromNotes && fromNotes.prepared && fromNotes.prepared.length > 0) return fromNotes;
   if (notes.length < 40) return unreadReply(true);
-  const jsonPrompt = buildImageNotesPrompt(text, snapshot, notes);
+  const jsonPrompt = buildImageNotesPrompt(text, snapshot, notes, { history, intent: intent || 'sketch' });
   const designed = await askTrazoJson({ prompt: jsonPrompt.prompt });
   const payload = payloadFromReply(designed);
   if (!payload) return unreadReply(true);
   return withTruncation(interpretReply(payload, snapshot), jsonPrompt.truncated);
 }
 
-async function runDiagramAgent({ text, snapshot, imageBase64 }) {
-  if (imageBase64) return runImageAgent({ text, snapshot, imageBase64 });
-  return runTextAgent({ text, snapshot });
+async function runDiagramAgent({ text, snapshot, imageBase64, history, intent }) {
+  if (imageBase64) return runImageAgent({ text, snapshot, imageBase64, history, intent });
+  return runTextAgent({ text, snapshot, history, intent });
 }
 
-module.exports = { runDiagramAgent };
+module.exports = { runDiagramAgent, buildTextPrompt };

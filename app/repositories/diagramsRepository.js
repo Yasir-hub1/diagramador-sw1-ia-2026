@@ -50,11 +50,25 @@ async function upsertCollaborator(diagramId, userId) {
 }
 
 async function logActivity({ diagramId, userId, userName, actionType, elementId, elementLabel, payload }) {
-  await pool.query(
+  const result = await pool.query(
     `INSERT INTO diagram_activity (diagram_id, user_id, user_name, action_type, element_id, element_label, payload)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     RETURNING id, user_id, user_name, action_type, payload, created_at`,
     [diagramId, userId || null, userName, actionType, elementId || null, elementLabel || null, payload || null]
   );
+  return result.rows[0] || null;
+}
+
+async function listAiMessages(diagramId, limit) {
+  const result = await pool.query(
+    `SELECT id, user_id, user_name, action_type, payload, created_at
+       FROM diagram_activity
+      WHERE diagram_id = $1 AND action_type IN ('ai:user', 'ai:assistant', 'ai:system')
+      ORDER BY id DESC
+      LIMIT $2`,
+    [diagramId, limit || 80]
+  );
+  return result.rows.reverse();
 }
 
 async function userCanAccess(diagramId, ownerId, userId) {
@@ -89,5 +103,6 @@ module.exports = {
   upsertCollaborator,
   userCanAccess,
   logActivity,
+  listAiMessages,
   getLastEditors,
 };

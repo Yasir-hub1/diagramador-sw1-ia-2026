@@ -240,10 +240,15 @@ textarea:focus-visible {
   background: var(--pine-soft);
 }
 
-.toolbar button.backend {
-  background: transparent;
-  border-color: rgba(163, 61, 30, 0.55);
-  color: #f3d2c6;
+.toolbar button.app {
+  background: var(--copper);
+  border-color: var(--copper);
+  color: #fff;
+  font-weight: 700;
+}
+
+.toolbar button.app:hover {
+  background: var(--copper-hot);
 }
 
 .toolbar .tool-link {
@@ -636,7 +641,7 @@ textarea:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  height: min(42vh, 280px);
+  height: min(48vh, 360px);
   overflow: auto;
   padding: 0.75rem;
   border: 1px solid var(--line);
@@ -653,11 +658,27 @@ textarea:focus-visible {
   white-space: pre-wrap;
 }
 
-.ai-msg.user {
+.ai-msg__who {
+  display: block;
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 0.2rem;
+  opacity: 0.72;
+}
+
+.ai-msg.mine {
   align-self: flex-end;
   background: var(--pine);
   color: #fff;
   border-bottom-right-radius: 4px;
+}
+
+.ai-msg.user {
+  align-self: flex-start;
+  background: #efe7d8;
+  color: var(--ink);
+  border-bottom-left-radius: 4px;
 }
 
 .ai-msg.assistant {
@@ -895,10 +916,21 @@ textarea:focus-visible {
   width: min(100%, 520px);
 }
 
-.modal-box.modal-backend {
-  width: min(100%, 560px);
-  max-height: min(92vh, 860px);
+.modal-box.modal-app {
+  width: min(100%, 860px);
+  max-height: min(92dvh, 860px);
   overflow: auto;
+}
+
+.app-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 1rem;
+  align-items: start;
+}
+
+.app-controls .modal-actions {
+  margin-top: 0.8rem;
 }
 
 .backend-lead {
@@ -1153,6 +1185,185 @@ textarea:focus-visible {
   #aiMicBtn,
   .ai-file {
     width: auto;
+  }
+}
+
+.modal-box.modal-app .phone-stage {
+  position: sticky;
+  top: 0;
+}
+
+.phone-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.phone-toolbar {
+  display: flex;
+  gap: 0.45rem;
+  width: 100%;
+}
+
+.phone-toolbar select {
+  flex: 1;
+}
+
+.phone-shell {
+  width: 270px;
+  height: 560px;
+  padding: 12px 10px 16px;
+  border-radius: 36px;
+  background:
+    linear-gradient(180deg, #24382e 0%, #13211c 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(240, 215, 194, 0.18),
+    0 22px 40px rgba(19, 33, 28, 0.28);
+  display: flex;
+  flex-direction: column;
+}
+
+.phone-shell[data-device="android"] {
+  border-radius: 22px;
+}
+
+.phone-shell[data-device="tablet"] {
+  width: 300px;
+  height: 420px;
+  border-radius: 18px;
+}
+
+.phone-shell.is-landscape {
+  width: 560px;
+  height: 270px;
+}
+
+.phone-shell[data-device="tablet"].is-landscape {
+  width: 420px;
+  height: 300px;
+}
+
+.phone-ear {
+  height: 18px;
+  margin: 0 auto 8px;
+  width: 92px;
+  border-radius: 12px;
+  background: #0c1612;
+  box-shadow: inset 0 0 0 1px rgba(163, 61, 30, 0.45);
+}
+
+.phone-screen {
+  flex: 1;
+  min-height: 0;
+  border-radius: 22px;
+  overflow: hidden;
+  background: #f7f6f3;
+  display: flex;
+  flex-direction: column;
+}
+
+.phone-status {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.45rem 0.7rem;
+  background: #1b4332;
+  color: #f0d7c2;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+}
+
+.phone-app {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: #f7f6f3;
+}
+
+.phone-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.7rem 0.8rem;
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+  font-weight: 700;
+}
+
+.phone-bar button {
+  min-height: 28px;
+  padding: 0 0.45rem;
+  border: 0;
+  background: transparent;
+  color: var(--copper);
+}
+
+.phone-list button,
+.phone-home button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+  padding: 0.75rem 0.85rem;
+}
+
+.phone-list strong,
+.phone-home strong {
+  display: block;
+}
+
+.phone-list span,
+.phone-home span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.phone-empty,
+.phone-error {
+  margin: 1.2rem;
+  color: var(--ink-soft);
+}
+
+.phone-form {
+  padding: 0.85rem;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.phone-form input {
+  width: 100%;
+}
+
+.phone-fab {
+  position: sticky;
+  bottom: 0.8rem;
+  left: calc(100% - 3.4rem);
+  width: 2.6rem;
+  height: 2.6rem;
+  border: 0;
+  border-radius: 50%;
+  background: var(--copper);
+  color: #fff;
+  font-size: 1.3rem;
+}
+
+@media (max-width: 800px) {
+  .app-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .modal-box.modal-app .phone-stage {
+    position: static;
+  }
+
+  .phone-shell,
+  .phone-shell.is-landscape,
+  .phone-shell[data-device="tablet"],
+  .phone-shell[data-device="tablet"].is-landscape {
+    width: min(100%, 280px);
+    height: min(68dvh, 520px);
   }
 }
 

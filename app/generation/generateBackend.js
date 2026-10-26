@@ -75,6 +75,8 @@ async function runGeneration(job, diagram, options) {
     job.zipName = packed.zipName;
     job.projectDir = packed.projectDir;
     job.cleanup = packed.cleanup;
+    job.backend = backend;
+    job.openApiYaml = yaml;
     job.preview = {
       entities: backend.entities.map((entity) => ({
         name: entity.name,

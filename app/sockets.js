@@ -5,6 +5,8 @@ const { roomName } = mutations;
 const { createDiagramProposal } = require('./ai/createProposal');
 const proposalStore = require('./ai/proposalStore');
 const { applyPreparedSteps } = require('./ai/applyPrepared');
+const roomChat = require('./ai/roomChat');
+const { emitGeneration } = require('./generation/bus');
 const { snapshotFromGraph, fingerprintOf } = require('../public/diagram-snapshot');
 const { LocalAiError } = require('./ai/errors');
 
@@ -82,6 +84,7 @@ function attachSockets(io, sessionMiddleware) {
           lastEditors,
           activeEditors: getActiveEditors(shareToken),
         });
+        socket.emit('ai:history', { messages: await roomChat.listMessages(diagram.id) });
 
         io.to(roomName(shareToken)).emit('presence:update', {
           users: getPresenceList(shareToken),
@@ -126,26 +129,44 @@ function attachSockets(io, sessionMiddleware) {
       await mutations.applyLinkRemove(io, buildCtx(true), data);
     });
 
-    function emitAiFailure(generation, error) {
+    function broadcastAi(event, payload) {
+      if (!currentShareToken) return;
+      emitGeneration(currentShareToken, event, payload);
+    }
+
+    async function emitAiFailure(generation, error) {
       const reply = error instanceof LocalAiError
         ? error.message
         : 'Ocurrió un error al procesar tu instrucción con la IA.';
       if (!(error instanceof LocalAiError)) {
         console.error(String(error && error.message || 'error').slice(0, 180));
       }
-      socket.emit('ai:result', { reply, skipped: [], warnings: [], appliedCount: 0, generation });
+      (error.roomMessages || []).forEach((message) => broadcastAi('ai:message', message));
+      if (!error.roomMessages) {
+        broadcastAi('ai:result', { reply, skipped: [], warnings: [], appliedCount: 0, generation });
+      } else {
+        broadcastAi('ai:result', { reply, skipped: [], warnings: [], appliedCount: 0, generation });
+      }
+      broadcastAi('ai:idle', {});
     }
 
-    socket.on('ai:command', async ({ text, generation }) => {
+    socket.on('ai:command', async ({ text, generation, source }) => {
       if (!currentShareToken) return;
+      broadcastAi('ai:busy', { authorName: userName });
       try {
         const result = await createDiagramProposal({
           userId,
+          userName,
           shareToken: currentShareToken,
           text,
+          source,
         });
-        if (!result.proposal) {
-          socket.emit('ai:result', {
+        broadcastAi('ai:message', result.userMessage);
+        broadcastAi('ai:message', result.assistantMessage);
+        if (result.proposal) {
+          broadcastAi('ai:proposal', { ...result.proposal, generation, authorName: userName });
+        } else {
+          broadcastAi('ai:result', {
             reply: result.reply,
             skipped: [],
             warnings: result.warnings,
@@ -153,11 +174,11 @@ function attachSockets(io, sessionMiddleware) {
             generation,
             needsClarification: Boolean(result.needsClarification),
           });
-          return;
         }
-        socket.emit('ai:proposal', { ...result.proposal, generation });
       } catch (error) {
-        emitAiFailure(generation, error);
+        await emitAiFailure(generation, error);
+      } finally {
+        broadcastAi('ai:idle', {});
       }
     });
 
@@ -165,7 +186,7 @@ function attachSockets(io, sessionMiddleware) {
       if (!currentShareToken) return;
       try {
         if (typeof fingerprint !== 'string' || !fingerprint) {
-          socket.emit('ai:result', {
+          broadcastAi('ai:result', {
             reply: 'No pude comprobar la versión del diagrama. Vuelve a pedir el análisis.',
             skipped: [],
             warnings: [],
@@ -174,9 +195,9 @@ function attachSockets(io, sessionMiddleware) {
           });
           return;
         }
-        const pending = proposalStore.read(proposalId, userId, currentShareToken);
+        const pending = proposalStore.read(proposalId, currentShareToken);
         if (!pending) {
-          socket.emit('ai:result', {
+          broadcastAi('ai:result', {
             reply: 'La propuesta ya no está disponible. Pide el análisis otra vez.',
             skipped: [],
             warnings: [],
@@ -188,8 +209,8 @@ function attachSockets(io, sessionMiddleware) {
         const diagram = await diagramsRepository.findByToken(currentShareToken);
         const currentFingerprint = diagram ? fingerprintOf(snapshotFromGraph(diagram.graph_data)) : '';
         if (currentFingerprint !== pending.fingerprint || fingerprint !== pending.fingerprint) {
-          proposalStore.discard(proposalId, userId, currentShareToken);
-          socket.emit('ai:result', {
+          proposalStore.discard(proposalId, currentShareToken);
+          broadcastAi('ai:result', {
             reply: 'El diagrama cambió mientras se preparaba la propuesta. Vuelve a pedir el análisis.',
             skipped: [],
             warnings: [],
@@ -198,9 +219,9 @@ function attachSockets(io, sessionMiddleware) {
           });
           return;
         }
-        const proposal = proposalStore.take(proposalId, userId, currentShareToken);
+        const proposal = proposalStore.take(proposalId, currentShareToken);
         if (!proposal) {
-          socket.emit('ai:result', {
+          broadcastAi('ai:result', {
             reply: 'La propuesta ya no está disponible. Pide el análisis otra vez.',
             skipped: [],
             warnings: [],
@@ -213,9 +234,19 @@ function attachSockets(io, sessionMiddleware) {
         const applied = await applyPreparedSteps(io, authorAlsoReceives, proposal.prepared);
         const stoppedEarly = applied.skipped.length > 0;
         const reply = stoppedEarly
-          ? 'Se aplicaron ' + applied.appliedCount + ' cambios y el resto se detuvo.'
-          : 'Apliqué ' + applied.appliedCount + ' cambios en la sala.';
-        socket.emit('ai:result', {
+          ? userName + ' aplicó ' + applied.appliedCount + ' cambios y el resto se detuvo.'
+          : userName + ' aplicó ' + applied.appliedCount + ' cambios en la sala.';
+        if (diagram) {
+          const note = await roomChat.appendMessage(diagram, {
+            role: 'system',
+            userId,
+            userName,
+            text: reply,
+            kind: 'applied',
+          });
+          broadcastAi('ai:message', note);
+        }
+        broadcastAi('ai:result', {
           reply,
           skipped: applied.skipped,
           warnings: [],
@@ -223,13 +254,25 @@ function attachSockets(io, sessionMiddleware) {
           generation,
         });
       } catch (error) {
-        emitAiFailure(generation, error);
+        await emitAiFailure(generation, error);
       }
     });
 
-    socket.on('ai:cancel', ({ proposalId }) => {
+    socket.on('ai:cancel', async ({ proposalId }) => {
       if (!currentShareToken || !proposalId) return;
-      proposalStore.discard(proposalId, userId, currentShareToken);
+      proposalStore.discard(proposalId, currentShareToken);
+      const diagram = currentDiagramId ? { id: currentDiagramId } : null;
+      if (diagram) {
+        const note = await roomChat.appendMessage(diagram, {
+          role: 'system',
+          userId,
+          userName,
+          text: userName + ' canceló la propuesta.',
+          kind: 'cancel',
+        });
+        broadcastAi('ai:message', note);
+      }
+      broadcastAi('ai:result', { reply: '', skipped: [], warnings: [], appliedCount: 0 });
     });
 
     socket.on('graph:save', async ({ graphJson }, ack) => {

@@ -7,6 +7,9 @@ const { sketchToOperations, sketchFromNotes } = require('./imageSketch');
 const { snapshotFromGraph, fingerprintOf } = require('../../public/diagram-snapshot');
 const { buildArchitectRequest, interpretArchitectPayload } = require('./architectContract');
 const { coerceOperation, interpretReply } = require('./adaptReply');
+const { classifyIntent, shouldProposeChanges } = require('./intent');
+const { formatHistoryForPrompt } = require('./roomChat');
+const { buildTextPrompt } = require('./diagramAgent');
 const settings = require('./settings');
 
 function emptyDiagram() {
@@ -642,4 +645,34 @@ test('rejects OpenAI diagrams when the provider is forced and the key is missing
     assert.equal(settings.diagramProvider(), 'openai');
     assert.throws(() => settings.assertDiagramProvider(), /OPENAI_API_KEY/);
   });
+});
+
+test('classifies UML review, questions and modifications', () => {
+  assert.equal(classifyIntent('revisa los tipos del diagrama'), 'review');
+  assert.equal(classifyIntent('qué relación hay entre Cliente y Pedido?'), 'question');
+  assert.equal(classifyIntent('agrega Producto y relaciónalo con Pedido'), 'modify');
+  assert.equal(classifyIntent('', { hasImage: true }), 'sketch');
+  assert.equal(shouldProposeChanges('question', 'qué clases hay'), false);
+  assert.equal(shouldProposeChanges('modify', 'crea Cliente'), true);
+});
+
+test('keeps the room conversation in the prompt and does not patch on a question', () => {
+  const history = formatHistoryForPrompt([
+    { role: 'user', authorName: 'Ana', text: 'revisa tipos' },
+    { role: 'assistant', text: 'phoneNumber debería ser String' },
+  ]);
+  const packed = buildTextPrompt('cámbialo', { classes: [], relations: [] }, { history, intent: 'modify' });
+  assert.match(packed.prompt, /Ana: revisa tipos/);
+  assert.match(packed.prompt, /intent=modify/);
+  const review = interpretReply(
+    {
+      message: 'Cliente no tiene id persistible.',
+      operations: [{ op: 'class:add', className: 'Fantasma' }],
+      warnings: [],
+    },
+    emptyDiagram(),
+    { intent: 'question', text: 'qué le falta a Cliente?' }
+  );
+  assert.equal(review.prepared.length, 0);
+  assert.match(review.reply, /id persistible/);
 });

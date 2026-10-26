@@ -1,6 +1,7 @@
 const { interpretModelPayload } = require('./operationPlan');
 const { interpretArchitectPayload, looksLikeArchitectPayload } = require('./architectContract');
 const { sketchToOperations, looksLikeSketch, memberToLine } = require('./imageSketch');
+const { shouldProposeChanges } = require('./intent');
 
 function asList(value) {
   return Array.isArray(value) ? value.filter((item) => item !== undefined && item !== null) : [];
@@ -66,6 +67,16 @@ function interpretReply(payload, snapshot, options) {
 
   const status = asText(payload.status) || 'ok';
   const operations = asList(payload.operations).map(coerceOperation).filter(Boolean);
+  if (!shouldProposeChanges(options && options.intent, options && options.text)) {
+    return {
+      reply: asText(payload.message) || asText(payload.explanation) || 'Revisé el diagrama de la sala.',
+      warnings: asList(payload.warnings).map(asText).filter(Boolean).slice(0, 8),
+      prepared: [],
+      typeNotes: [],
+      status,
+      needsClarification: status === 'needs_clarification',
+    };
+  }
   const hasArchitectOp = operations.some((item) => {
     const op = asText(item.op);
     return op.startsWith('add_') || op.startsWith('update_') || op.startsWith('remove_');

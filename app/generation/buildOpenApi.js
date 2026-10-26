@@ -71,6 +71,14 @@ function buildOpenApiDocument(model) {
     schemas[entity.name] = schemaForEntity(entity);
   });
 
+  paths['/api/health'] = {
+    get: {
+      operationId: 'health',
+      tags: ['Health'],
+      responses: { '200': { description: 'OK' } },
+    },
+  };
+
   return {
     openapi: '3.0.3',
     info: {

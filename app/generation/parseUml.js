@@ -17,7 +17,7 @@ function parseAttribute(line) {
       name,
       type: mapJavaType(match[2]),
       visibility: /^id$/i.test(name) ? '-' : '+',
-      required: true,
+      required: /^id$/i.test(name),
       primaryKey: /^id$/i.test(name),
     };
   }
@@ -26,7 +26,7 @@ function parseAttribute(line) {
     name,
     type: mapJavaType(match[3]),
     visibility: match[1],
-    required: name === 'id' || match[1] === '+',
+    required: /^id$/i.test(name),
     primaryKey: /^id$/i.test(name),
   };
 }

@@ -11,12 +11,14 @@ function fieldJava(attribute) {
     lines.push('    @Id');
     lines.push('    @GeneratedValue(strategy = GenerationType.IDENTITY)');
   }
-  if (attribute.required && !attribute.primaryKey) {
-    if (attribute.type === 'String') {
-      lines.push(attribute.name.toLowerCase().includes('email') ? '    @Email' : '    @NotBlank');
-    } else {
-      lines.push('    @NotNull');
-    }
+  if (attribute.type === 'String' && attribute.name.toLowerCase().includes('email')) {
+    lines.push('    @Email');
+  }
+  if (attribute.type === 'LocalDate') {
+    lines.push('    @JsonFormat(pattern = "yyyy-MM-dd")');
+  }
+  if (attribute.type === 'LocalDateTime') {
+    lines.push('    @JsonFormat(pattern = "yyyy-MM-dd\'T\'HH:mm:ss")');
   }
   lines.push('    private ' + attribute.type + ' ' + attribute.name + ';');
   return lines.join('\n');
@@ -36,7 +38,7 @@ function accessors(attribute) {
 }
 
 function extraImports(attributes) {
-  const imports = new Set(['jakarta.persistence.*', 'jakarta.validation.constraints.*']);
+  const imports = new Set(['jakarta.persistence.*', 'jakarta.validation.constraints.*', 'com.fasterxml.jackson.annotation.JsonFormat']);
   attributes.forEach((item) => {
     const extra = javaImport(item.type);
     if (extra) imports.add(extra);
@@ -90,11 +92,11 @@ function entityFile(packageName, entity, relationships) {
 
 function dtoField(attribute) {
   const lines = [];
-  if (attribute.required && !attribute.primaryKey && attribute.type === 'String') {
-    lines.push(attribute.name.toLowerCase().includes('email') ? '    @Email' : '    @NotBlank');
-  } else if (attribute.required && !attribute.primaryKey) {
-    lines.push('    @NotNull');
+  if (attribute.type === 'String' && attribute.name.toLowerCase().includes('email')) {
+    lines.push('    @Email');
   }
+  if (attribute.type === 'LocalDate') lines.push('    @JsonFormat(pattern = "yyyy-MM-dd")');
+  if (attribute.type === 'LocalDateTime') lines.push('    @JsonFormat(pattern = "yyyy-MM-dd\'T\'HH:mm:ss")');
   lines.push('    private ' + attribute.type + ' ' + attribute.name + ';');
   return lines.join('\n');
 }
@@ -102,7 +104,7 @@ function dtoField(attribute) {
 function dtoFile(packageName, entity, kind) {
   const typeName = entity.name + kind;
   const fields = entity.attributes.filter((item) => kind !== 'CreateRequest' || !item.primaryKey);
-  const imports = new Set(['jakarta.validation.constraints.*']);
+  const imports = new Set(['jakarta.validation.constraints.*', 'com.fasterxml.jackson.annotation.JsonFormat']);
   fields.forEach((item) => {
     const extra = javaImport(item.type);
     if (extra) imports.add(extra);
@@ -239,6 +241,55 @@ function controllerFile(packageName, entity) {
   ].join('\n');
 }
 
+function apiErrorHandler(packageName) {
+  return [
+    'package ' + packageName + '.controller;',
+    '',
+    'import java.util.Map;',
+    'import org.springframework.http.ResponseEntity;',
+    'import org.springframework.http.converter.HttpMessageNotReadableException;',
+    'import org.springframework.web.bind.MethodArgumentNotValidException;',
+    'import org.springframework.web.bind.annotation.ExceptionHandler;',
+    'import org.springframework.web.bind.annotation.RestControllerAdvice;',
+    '',
+    '@RestControllerAdvice',
+    'public class ApiErrorHandler {',
+    '    @ExceptionHandler(MethodArgumentNotValidException.class)',
+    '    public ResponseEntity<Map<String, String>> validation(MethodArgumentNotValidException error) {',
+    '        String detail = error.getBindingResult().getFieldErrors().stream()',
+    '            .map(item -> item.getField() + ": " + item.getDefaultMessage())',
+    '            .findFirst().orElse("Datos inválidos");',
+    '        return ResponseEntity.badRequest().body(Map.of("error", detail));',
+    '    }',
+    '',
+    '    @ExceptionHandler(HttpMessageNotReadableException.class)',
+    '    public ResponseEntity<Map<String, String>> unreadable(HttpMessageNotReadableException error) {',
+    '        return ResponseEntity.badRequest().body(Map.of("error", "El JSON no coincide con los tipos del backend. Revisa números, booleanos y fechas."));',
+    '    }',
+    '}',
+    '',
+  ].join('\n');
+}
+
+function healthController(packageName) {
+  return [
+    'package ' + packageName + '.controller;',
+    '',
+    'import java.util.Map;',
+    'import org.springframework.web.bind.annotation.GetMapping;',
+    'import org.springframework.web.bind.annotation.RestController;',
+    '',
+    '@RestController',
+    'public class HealthController {',
+    '    @GetMapping("/api/health")',
+    '    public Map<String, String> health() {',
+    '        return Map.of("status", "UP");',
+    '    }',
+    '}',
+    '',
+  ].join('\n');
+}
+
 function applicationFile(packageName) {
   return [
     'package ' + packageName + ';',
@@ -269,6 +320,9 @@ function applicationYml(database) {
       '  jpa:',
       '    hibernate:',
       '      ddl-auto: update',
+      '  jackson:',
+      '    deserialization:',
+      '      fail-on-unknown-properties: false',
       'springdoc:',
       '  swagger-ui:',
       '    path: /swagger-ui.html',
@@ -279,6 +333,9 @@ function applicationYml(database) {
     'server:',
     '  port: 8081',
     'spring:',
+    '  jackson:',
+    '    deserialization:',
+    '      fail-on-unknown-properties: false',
     '  datasource:',
     '    url: jdbc:h2:mem:trazo;DB_CLOSE_DELAY=-1',
     '    driver-class-name: org.h2.Driver',
@@ -401,6 +458,8 @@ function writeSpringFiles(model, openApiYaml) {
     [root + 'README.md']: readme(model),
     [root + 'src/main/resources/application.yml']: applicationYml(model.configuration.database),
     [base + '/Application.java']: applicationFile(model.project.packageName),
+    [base + '/controller/HealthController.java']: healthController(model.project.packageName),
+    [base + '/controller/ApiErrorHandler.java']: apiErrorHandler(model.project.packageName),
   };
   model.entities.forEach((entity) => {
     files[base + '/entity/' + entity.name + '.java'] = entityFile(model.project.packageName, entity, model.relationships);

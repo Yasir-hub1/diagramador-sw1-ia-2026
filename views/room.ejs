@@ -30,7 +30,7 @@
 
       <button type="button" id="shareRoomBtn" class="share">Invitar a la sala</button>
       <button type="button" id="aiAssistantBtn" class="ai">Pedirle a la IA</button>
-      <button type="button" id="backendGenerateBtn" class="backend">Generar backend</button>
+      <button type="button" id="appGenerateBtn" class="app">Generar aplicativo</button>
       <a class="tool-link" href="/room/<%= shareToken %>/export.xmi">Descargar XMI</a>
 
       <div class="toolbar-section">
@@ -144,7 +144,7 @@
 
   <div class="modal-overlay" id="modalAI">
     <div class="modal-box modal-ai" role="dialog" aria-modal="true" aria-labelledby="modalAiTitle" aria-describedby="aiHint">
-      <h3 id="modalAiTitle">Pedir un cambio al diagrama</h3>
+      <h3 id="modalAiTitle">Asistente UML de la sala</h3>
       <div id="aiChatLog" aria-live="polite"></div>
       <div id="aiAttachment" class="ai-attachment" hidden>
         <img id="aiAttachmentPreview" alt="Vista previa del diagrama adjunto">
@@ -179,77 +179,86 @@
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 9.2 12.2 5a2.4 2.4 0 0 1 3.4 3.4l-5.8 5.8a3.2 3.2 0 0 1-4.5-4.5l5.5-5.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <span class="visually-hidden">Adjuntar imagen</span>
         </label>
-        <input type="text" id="aiTextInput" placeholder="Ej: Cliente realiza Pedido con varios Productos" autocomplete="off" aria-describedby="aiHint">
+        <input type="text" id="aiTextInput" placeholder="Revisa tipos, explica una relación o pide un cambio" autocomplete="off" aria-describedby="aiHint">
         <button type="button" id="aiMicBtn" title="Mantén presionado para dictar. La transcripción usa internet." aria-label="Grabar voz">
           <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="2.5" width="6" height="9" rx="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4.5 9.5a5.5 5.5 0 0 0 11 0M10 15v2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
         </button>
         <button type="button" id="aiSendBtn">Enviar</button>
       </div>
-      <p class="ai-hint" id="aiHint"><% if (aiProvider === 'openai') { %>El arquitecto UML usa OpenAI. Propone un parche y espera a que lo apliques. Escribe, adjunta una imagen o dicta.<% } else { %>El arquitecto UML usa el modelo local. Propone un parche y espera a que lo apliques. Escribe o adjunta una imagen. El micrófono necesita una clave de OpenAI.<% } %></p>
+      <p class="ai-hint" id="aiHint"><% if (aiProvider === 'openai') { %>Chat compartido de la sala. Revisa, pregunta o pide cambios. Escribe, adjunta una imagen o mantén el micrófono para dictar.<% } else { %>Chat compartido de la sala. Revisa, pregunta o pide cambios. Escribe o adjunta una imagen. El micrófono necesita OPENAI_API_KEY.<% } %></p>
       <div class="modal-actions">
         <button type="button" class="cancel" data-close="modalAI">Cerrar</button>
       </div>
     </div>
   </div>
 
-  <div class="modal-overlay" id="modalBackend">
-    <div class="modal-box modal-backend" role="dialog" aria-modal="true" aria-labelledby="modalBackendTitle" aria-describedby="backendHint">
-      <h3 id="modalBackendTitle">Generar backend Spring Boot</h3>
-      <p class="backend-lead">TRAZO lee las clases de esta sala, arma OpenAPI y escribe un proyecto Maven. La IA solo revisa; no inventa Java.</p>
-      <form id="backendForm">
-        <label for="backendDatabase">Base de datos</label>
-        <select id="backendDatabase">
-          <option value="h2">H2 en memoria</option>
-          <option value="postgresql">PostgreSQL</option>
-        </select>
-        <label class="backend-check">
-          <input type="checkbox" id="backendUseAi">
-          Pedir revisión de la IA (avisos, no código)
-        </label>
-        <p class="ai-hint" id="backendHint">El ZIP incluye controllers, services, repositories, DTOs, application.yml y openapi.yaml. Arrancar la API necesita Java 17 y Maven en esta máquina.</p>
-        <p id="backendTools" class="ai-hint" hidden></p>
-        <div class="modal-actions">
-          <button type="button" class="cancel" data-close="modalBackend">Cerrar</button>
-          <button type="submit" class="save" id="backendStartBtn">Generar ZIP</button>
+  <div class="modal-overlay" id="modalApp">
+    <div class="modal-box modal-app" role="dialog" aria-modal="true" aria-labelledby="modalAppTitle">
+      <h3 id="modalAppTitle">Generar aplicativo</h3>
+      <div class="app-layout">
+        <div class="app-controls">
+          <form id="backendForm">
+            <label for="backendDatabase">Base de datos</label>
+            <select id="backendDatabase">
+              <option value="h2">H2 en memoria</option>
+              <option value="postgresql">PostgreSQL</option>
+            </select>
+            <label class="backend-check">
+              <input type="checkbox" id="backendUseAi">
+              Revisar con IA
+            </label>
+            <p id="backendTools" class="ai-hint" hidden></p>
+            <div class="modal-actions">
+              <button type="button" class="cancel" data-close="modalApp">Cerrar</button>
+              <button type="submit" class="save" id="backendStartBtn">Generar aplicativo</button>
+            </div>
+          </form>
+          <p id="backendStatus" class="ai-status" role="status" hidden></p>
+          <p id="flutterStatus" class="ai-status" role="status" hidden></p>
+          <ol id="backendSteps" class="backend-steps" hidden></ol>
+          <ol id="flutterSteps" class="backend-steps" hidden></ol>
+          <ul id="backendWarnings" class="backend-warnings" hidden></ul>
+          <ul id="flutterWarnings" class="backend-warnings" hidden></ul>
+          <section id="backendPreview" class="backend-preview" hidden>
+            <ul id="backendEntities"></ul>
+            <div class="modal-actions backend-run-actions">
+              <button type="button" class="save" id="backendRunBtn" hidden>Arrancar API</button>
+              <button type="button" class="cancel" id="backendStopBtn" hidden>Detener</button>
+              <a class="save" id="backendSwagger" href="#" target="_blank" rel="noopener" hidden>Swagger</a>
+              <a class="save" id="backendDownload" href="#" hidden>ZIP de la API</a>
+              <a class="save" id="flutterDownload" href="#" hidden>ZIP de la app</a>
+            </div>
+          </section>
+          <pre id="backendLogs" class="backend-logs" hidden></pre>
+          <div id="backendTypes" hidden><ul id="backendTypeList"></ul></div>
+          <div id="backendChanges" hidden><ul id="backendChangeList"></ul></div>
+          <div id="flutterReadyActions" hidden></div>
         </div>
-      </form>
-      <p id="backendStatus" class="ai-status" role="status" hidden></p>
-      <ol id="backendSteps" class="backend-steps" hidden></ol>
-      <ul id="backendWarnings" class="backend-warnings" hidden></ul>
-      <section id="backendTypes" class="backend-preview" hidden>
-        <p class="ai-proposal__kicker">Por qué estos tipos</p>
-        <ul id="backendTypeList"></ul>
-      </section>
-      <section id="backendChanges" class="backend-preview" hidden>
-        <p class="ai-proposal__kicker">Cambios respecto a la última generación</p>
-        <ul id="backendChangeList"></ul>
-      </section>
-      <section id="backendPreview" class="backend-preview" hidden>
-        <p class="ai-proposal__kicker">Entidades</p>
-        <ul id="backendEntities"></ul>
-        <div class="modal-actions backend-run-actions">
-          <a class="save" id="backendDownload" href="#" hidden>Descargar ZIP</a>
-          <button type="button" class="save" id="backendRunBtn" hidden>Arrancar API</button>
-          <button type="button" class="cancel" id="backendStopBtn" hidden>Detener</button>
-          <a class="save" id="backendSwagger" href="#" target="_blank" rel="noopener" hidden>Abrir Swagger</a>
+        <div class="phone-stage">
+          <div class="phone-toolbar">
+            <label class="visually-hidden" for="phoneDevice">Dispositivo</label>
+            <select id="phoneDevice">
+              <option value="iphone">iPhone</option>
+              <option value="android">Android</option>
+              <option value="tablet">Tablet</option>
+            </select>
+            <button type="button" id="phoneRotate" class="cancel">Girar</button>
+          </div>
+          <div class="phone-shell" data-device="iphone" id="phoneShell">
+            <div class="phone-ear"></div>
+            <div class="phone-screen" id="phoneScreen">
+              <div class="phone-status">
+                <span>TRAZO</span>
+                <span id="phoneLink">API · —</span>
+              </div>
+              <div class="phone-app" id="phoneApp">
+                <p class="phone-empty">Genera para ver la app.</p>
+              </div>
+            </div>
+            <div class="phone-chin"></div>
+          </div>
         </div>
-      </section>
-      <section id="backendTester" class="backend-tester" hidden>
-        <p class="ai-proposal__kicker">Probar API</p>
-        <div class="backend-tester-row">
-          <select id="backendMethod">
-            <option>GET</option>
-            <option>POST</option>
-            <option>PUT</option>
-            <option>DELETE</option>
-          </select>
-          <input type="text" id="backendPath" placeholder="/api/usuarios" autocomplete="off">
-          <button type="button" class="save" id="backendSendBtn">Enviar</button>
-        </div>
-        <textarea id="backendBody" rows="4" placeholder='{"nombre":"Ana"}'></textarea>
-        <pre id="backendResponse" class="backend-response" hidden></pre>
-        <pre id="backendLogs" class="backend-logs" hidden></pre>
-      </section>
+      </div>
     </div>
   </div>
 
@@ -290,6 +299,8 @@
   <script src="/room.js"></script>
   <script src="/diagram-snapshot.js"></script>
   <script src="/ai-assistant.js"></script>
+  <script src="/json-fields.js"></script>
   <script src="/backend-generator.js"></script>
+  <script src="/flutter-generator.js"></script>
 </body>
 </html>
