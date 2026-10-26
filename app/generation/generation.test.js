@@ -156,6 +156,22 @@ test('writes Spring controller and entity files', () => {
   assert.match(files[names.find((name) => name.endsWith('ApiErrorHandler.java'))], /HttpMessageNotReadableException/);
 });
 
+test('writes PostgreSQL credentials from TRAZO into application.yml', () => {
+  const backend = buildBackendModel(parseUmlModel(sampleSnapshot(), 'd1'), {
+    database: 'postgresql',
+    dbHost: '127.0.0.1',
+    dbUser: 'postgres',
+    dbPassword: 'clave-servidor',
+    generatedDbName: 'trazo_generated',
+  });
+  const files = writeSpringFiles(backend, 'openapi: 3.0.3\n');
+  const yml = files[Object.keys(files).find((name) => name.endsWith('application.yml'))];
+  assert.match(yml, /jdbc:postgresql:\/\/127\.0\.0\.1:5432\/trazo_generated/);
+  assert.match(yml, /username: 'postgres'/);
+  assert.match(yml, /password: 'clave-servidor'/);
+  assert.match(yml, /PostgreSQLDialect/);
+});
+
 test('coerces form text to Spring JSON types and omits blanks', () => {
   assert.equal(coerceField('Integer', '21').value, 21);
   assert.equal(coerceField('Boolean', 'true').value, true);

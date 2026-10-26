@@ -36,6 +36,16 @@ function endpointsFor(entity) {
   return routes;
 }
 
+function resolveDatasource(options = {}) {
+  return {
+    host: options.dbHost || process.env.GENERATED_DB_HOST || '127.0.0.1',
+    port: String(options.dbPort || process.env.DB_PORT || '5432'),
+    name: options.generatedDbName || process.env.GENERATED_DB_NAME || 'trazo_generated',
+    username: options.dbUser || process.env.DB_USER || 'postgres',
+    password: options.dbPassword || process.env.DB_PASSWORD || 'postgres',
+  };
+}
+
 function persistableRelation(relation) {
   return relation.type === 'association' || relation.type === 'aggregation' || relation.type === 'composition';
 }
@@ -83,8 +93,9 @@ function buildBackendModel(uml, options = {}) {
       springBootVersion: '3.3.5',
       javaVersion: '17',
       database: options.database === 'postgresql' ? 'postgresql' : 'h2',
+      datasource: resolveDatasource(options),
     },
   };
 }
 
-module.exports = { buildBackendModel, pluralize, camel };
+module.exports = { buildBackendModel, pluralize, camel, resolveDatasource };

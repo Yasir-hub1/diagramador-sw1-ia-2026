@@ -49,6 +49,19 @@ async function waitForHttp(port, timeoutMs) {
   return false;
 }
 
+function generatedDatasourceEnv(job) {
+  if (!job.backend || job.backend.configuration.database !== 'postgresql') return {};
+  const source = job.backend.configuration.datasource || {};
+  const host = source.host || process.env.GENERATED_DB_HOST || '127.0.0.1';
+  const port = source.port || process.env.DB_PORT || '5432';
+  const name = source.name || process.env.GENERATED_DB_NAME || 'trazo_generated';
+  return {
+    SPRING_DATASOURCE_URL: 'jdbc:postgresql://' + host + ':' + port + '/' + name,
+    SPRING_DATASOURCE_USERNAME: source.username || process.env.DB_USER || 'postgres',
+    SPRING_DATASOURCE_PASSWORD: source.password || process.env.DB_PASSWORD || 'postgres',
+  };
+}
+
 function stopProcess(job) {
   if (job.child && !job.child.killed) {
     job.child.kill('SIGTERM');
@@ -83,7 +96,7 @@ async function startProcess(job) {
     ['-B', 'spring-boot:run', '-DskipTests', '-Dspring-boot.run.arguments=--server.port=' + port],
     {
       cwd: job.projectDir,
-      env: { ...process.env, JAVA_HOME: resolveJavaHome() || process.env.JAVA_HOME },
+      env: { ...process.env, ...generatedDatasourceEnv(job), JAVA_HOME: resolveJavaHome() || process.env.JAVA_HOME },
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     }

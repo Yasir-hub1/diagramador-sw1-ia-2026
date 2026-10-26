@@ -307,17 +307,26 @@ function applicationFile(packageName) {
   ].join('\n');
 }
 
-function applicationYml(database) {
-  if (database === 'postgresql') {
+function yamlQuote(value) {
+  return "'" + String(value ?? '').replace(/'/g, "''") + "'";
+}
+
+function applicationYml(configuration) {
+  if (configuration.database === 'postgresql') {
+    const db = configuration.datasource || {};
+    const host = db.host || '127.0.0.1';
+    const port = db.port || '5432';
+    const name = db.name || 'trazo_generated';
     return [
       'server:',
       '  port: 8081',
       'spring:',
       '  datasource:',
-      '    url: jdbc:postgresql://localhost:5432/trazo_generated',
-      '    username: postgres',
-      '    password: postgres',
+      '    url: jdbc:postgresql://' + host + ':' + port + '/' + name,
+      '    username: ' + yamlQuote(db.username || 'postgres'),
+      '    password: ' + yamlQuote(db.password || 'postgres'),
       '  jpa:',
+      '    database-platform: org.hibernate.dialect.PostgreSQLDialect',
       '    hibernate:',
       '      ddl-auto: update',
       '  jackson:',
@@ -417,7 +426,11 @@ ${dbDep}
 }
 
 function readme(model) {
-  const db = model.configuration.database === 'postgresql' ? 'PostgreSQL en localhost:5432/trazo_generated' : 'H2 en memoria';
+  const source = model.configuration.datasource || {};
+  const db =
+    model.configuration.database === 'postgresql'
+      ? 'PostgreSQL en ' + (source.host || '127.0.0.1') + ':' + (source.port || '5432') + '/' + (source.name || 'trazo_generated')
+      : 'H2 en memoria';
   return [
     '# TRAZO Generated Backend',
     '',
@@ -456,7 +469,7 @@ function writeSpringFiles(model, openApiYaml) {
     [root + 'pom.xml']: pomXml(model),
     [root + 'openapi.yaml']: openApiYaml,
     [root + 'README.md']: readme(model),
-    [root + 'src/main/resources/application.yml']: applicationYml(model.configuration.database),
+    [root + 'src/main/resources/application.yml']: applicationYml(model.configuration),
     [base + '/Application.java']: applicationFile(model.project.packageName),
     [base + '/controller/HealthController.java']: healthController(model.project.packageName),
     [base + '/controller/ApiErrorHandler.java']: apiErrorHandler(model.project.packageName),

@@ -99,26 +99,57 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 SQL
 ```
 
-Para poder conectar **desde fuera** (DBeaver, otra máquina, etc.):
+Para conectar **desde fuera** tienen que estar bien **tres** cosas: Postgres escuchando en todas las IPs, `pg_hba.conf` con CIDR válido (`0.0.0.0/0`, no `0.0.0.0`) y el puerto 5432 abierto en el firewall del servidor **y** del proveedor (DigitalOcean, AWS, etc.).
 
 ```bash
-# /etc/postgresql/12/main/postgresql.conf
-sed -i "s/^#\?listen_addresses.*/listen_addresses = '*'/" /etc/postgresql/12/main/postgresql.conf
+# 1) Escuchar en todas las interfaces (si no, solo responde en 127.0.0.1)
+sed -i "s/^#listen_addresses.*/listen_addresses = '*'/" /etc/postgresql/12/main/postgresql.conf
+sed -i "s/^listen_addresses.*/listen_addresses = '*'/" /etc/postgresql/12/main/postgresql.conf
+grep listen_addresses /etc/postgresql/12/main/postgresql.conf
+# debe verse: listen_addresses = '*'
 
-# /etc/postgresql/12/main/pg_hba.conf  — contraseña desde cualquier IP
-# Si ya existe una línea similar, no dupliques.
-echo "host    all    all    0.0.0.0/0    md5" >> /etc/postgresql/12/main/pg_hba.conf
-echo "host    all    all    ::/0         md5" >> /etc/postgresql/12/main/pg_hba.conf
+# 2) Una sola regla remota, el mismo método que 127.0.0.1 (md5).
+# No mezcles scram y md5: Postgres usa la primera que coincida.
+# Borra a mano en nano las 4 líneas 0.0.0.0/0 y ::/0 y deja solo:
+# host    all    all    0.0.0.0/0    md5
+# host    all    all    ::/0         md5
 
+# 3) Vuelve a fijar la clave (PG 12 suele guardar scram; si no coincide con pg_hba, falla)
+# No pongas la clave en esta línea si tiene * ? $ ! — entra a psql y escríbela ahí (paso de abajo).
+
+ufw allow 5432/tcp
+ufw reload
 systemctl restart postgresql
 ```
 
-Comprueba en el servidor y desde tu PC:
+En el servidor, esto tiene que mostrar `0.0.0.0:5432` o `*:5432`. Si ves `127.0.0.1:5432`, **sigue sin escuchar fuera**:
 
 ```bash
-PGPASSWORD='CLAVE_DB' psql -h 127.0.0.1 -U postgres -d postgres -c 'SELECT version();'
-# Desde fuera: psql -h IP_DEL_SERVIDOR -U postgres -d postgres
+ss -lntp | grep 5432
+systemctl status postgresql --no-pager
+# si no arranca: journalctl -u postgresql -n 40 --no-pager
+# casi siempre es una línea mal escrita en pg_hba.conf
 ```
+
+Local y remoto:
+
+```bash
+PGPASSWORD='CLAVE_DB' psql -h 127.0.0.1 -U postgres -d postgres -c 'SELECT 1;'
+# Desde tu PC (host = IP pública del VPS, no localhost):
+# PGPASSWORD='CLAVE_DB' psql -h IP_DEL_SERVIDOR -U postgres -d postgres
+```
+
+Cuando `psql` abra el prompt `postgres=#`, escribe (cambia la clave) y luego `\q`:
+
+```sql
+ALTER USER postgres WITH PASSWORD 'CLAVE_DB';
+```
+
+En DBeaver: host = IP pública, port `5432`, database `postgres`, user `postgres`, SSL **off**.
+
+Si el servidor responde `FATAL: password authentication failed`, la red ya está bien: **la clave guardada no es la que escribes**. Casi siempre bash comió el `*` al hacer `ALTER USER` en una sola línea. Repite el `ALTER` en el prompt de `psql`, no en `psql -c "..."`.
+
+Si `ss` muestra `*:5432` y la conexión ni llega (timeout), el corte es el firewall de la nube, no el `pg_hba`.
 
 ---
 
@@ -199,6 +230,8 @@ DB_HOST=127.0.0.1
 DB_NAME=postgres
 DB_PASSWORD=CLAVE_DB
 DB_PORT=5432
+# El Spring generado usa este usuario/clave contra 127.0.0.1/trazo_generated
+# CREATE DATABASE trazo_generated;  (como postgres)
 
 SESSION_SECRET=SECRETO_SESION
 
@@ -223,7 +256,7 @@ JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 Permisos:
 
 ```bash
-chmod 600 /opt/trazo/app/.env
+chmod 600 /opt/trazo/diagramador/.env
 ```
 
 Genera el secreto:
@@ -231,7 +264,7 @@ Genera el secreto:
 ```bash
 openssl rand -hex 32
 ```
-
+9c76ac76c15f8ae531f898d5b4cc6c49a8019289420e2cffc58d4c4910199661
 ---
 
 ## 7. systemd (proceso como root)
@@ -247,9 +280,9 @@ Wants=postgresql.service
 Type=simple
 User=root
 Group=root
-WorkingDirectory=/opt/trazo/app
+WorkingDirectory=/opt/trazo/diagramador
 Environment=NODE_ENV=development
-EnvironmentFile=/opt/trazo/app/.env
+EnvironmentFile=/opt/trazo/diagramador/.env
 Environment=JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 Environment=PATH=/usr/lib/jvm/java-17-openjdk-amd64/bin:/root/.trazo/apache-maven-3.9.9/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 ExecStart=/usr/bin/node app/app.js
@@ -301,7 +334,7 @@ upstream trazo_node {
 server {
     listen 80;
     listen [::]:80;
-    server_name TU_DOMINIO;
+    server_name diagramador.chambi.shop;
 
     client_max_body_size 12m;
 
@@ -393,7 +426,7 @@ systemctl restart trazo
 ```bash
 ufw allow 443/tcp
 apt-get install -y certbot python3-certbot-nginx
-certbot --nginx -d TU_DOMINIO
+certbot --nginx -d diagramador.chambi.shop
 ```
 
 Certbot reescribe el `server` de Nginx: escucha 443 con el certificado y deja un 80 que redirige a HTTPS.
@@ -577,7 +610,7 @@ Guarda también `/opt/trazo/app/.env` fuera del servidor.
 | 413 al subir imagen o audio | `client_max_body_size` < 12m |
 | IA o Maven “timeout” | `proxy_read_timeout` corto |
 | `mvn not found` / Java 11 | PATH y `JAVA_HOME` del unit |
-| `password authentication failed` | La clave de `postgres` no es la del `.env` o falta `md5` en `pg_hba.conf` |
+| `password authentication failed` | Llegas al 5432, pero la clave no coincide. Resetea con `sudo -u postgres psql` y un `ALTER USER` escrito a mano. Evita `*` `?` `$` en bash. |
 | No conecta desde fuera | `listen_addresses = '*'`, `ufw allow 5432` y línea `host all all 0.0.0.0/0 md5` |
 | Puerto 3001 accesible desde internet | Cierra 3001 en el firewall; solo Nginx |
 
