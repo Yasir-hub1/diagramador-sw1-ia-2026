@@ -45,10 +45,19 @@ function generateId(prefix) {
   return prefix + '_' + Math.random().toString(36).substr(2, 9);
 }
 
+function typeFromNode(node) {
+  if (!node || typeof node !== 'object') return '';
+  if (node['@_type']) return String(node['@_type']).split('#').pop();
+  const typed = node.type;
+  if (!typed) return '';
+  const href = typed['@_href'] || typed['@_name'] || '';
+  return String(href).split('#').pop();
+}
+
 function buildAttributeLine(ownedAttribute) {
   const visibility = VISIBILITY_SYMBOL[ownedAttribute['@_visibility']] || '+';
   const name = ownedAttribute['@_name'];
-  const type = ownedAttribute['@_type'] || 'string';
+  const type = typeFromNode(ownedAttribute) || 'String';
   if (!name) return null;
   return `${visibility} ${name}: ${type}`;
 }
@@ -60,7 +69,7 @@ function buildMethodLine(ownedOperation) {
   const params = asArray(ownedOperation.ownedParameter).filter((p) => p['@_direction'] !== 'return');
   const returnParam = asArray(ownedOperation.ownedParameter).find((p) => p['@_direction'] === 'return');
   const paramsStr = params.map((p) => `${p['@_name']}: ${p['@_type'] || 'any'}`).join(', ');
-  const returnType = (returnParam && returnParam['@_type']) || 'void';
+  const returnType = typeFromNode(returnParam) || (returnParam && returnParam['@_type']) || 'void';
   return `${visibility} ${name}(${paramsStr}): ${returnType}`;
 }
 
@@ -88,6 +97,17 @@ function importFromXmi(xmlString) {
       const name = el['@_name'] || 'Clase';
       const attributes = asArray(el.ownedAttribute).map(buildAttributeLine).filter(Boolean);
       const methods = asArray(el.ownedOperation).map(buildMethodLine).filter(Boolean);
+      asArray(el.generalization).forEach((gen) => {
+        const parentId = gen['@_general'];
+        if (parentId) {
+          cells.push({
+            _pendingGeneralization: true,
+            childOriginalId: originalId,
+            parentOriginalId: parentId,
+            linkOriginalId: gen['@_xmi:id'],
+          });
+        }
+      });
 
       cells.push({
         id: elementId,
@@ -143,6 +163,7 @@ function importFromXmi(xmlString) {
         targetMultiplicity = ends[1].lowerValue && ends[1].lowerValue['@_value'];
       }
     }
+    const associationName = el['@_name'];
 
     if (!type) return;
     const sourceId = idMap[sourceOriginalId];
@@ -151,8 +172,15 @@ function importFromXmi(xmlString) {
 
     const linkId = generateId('link');
     const labels = [];
-    if (sourceMultiplicity) labels[0] = { position: 0.1, attrs: { text: { text: sourceMultiplicity, 'font-size': 12, 'font-family': 'JetBrains Mono, monospace', fill: '#13211c' } } };
-    if (targetMultiplicity) labels[1] = { position: 0.9, attrs: { text: { text: targetMultiplicity, 'font-size': 12, 'font-family': 'JetBrains Mono, monospace', fill: '#13211c' } } };
+    if (sourceMultiplicity) {
+      labels[0] = { position: { distance: 0.18, offset: 14 }, attrs: { text: { text: sourceMultiplicity, 'font-size': 12, 'font-family': 'JetBrains Mono, monospace', fill: '#13211c' } } };
+    }
+    if (targetMultiplicity) {
+      labels[1] = { position: { distance: 0.82, offset: 14 }, attrs: { text: { text: targetMultiplicity, 'font-size': 12, 'font-family': 'JetBrains Mono, monospace', fill: '#13211c' } } };
+    }
+    if (associationName && type === 'association') {
+      labels[2] = { position: 0.5, attrs: { text: { text: associationName, 'font-size': 11, 'font-family': 'Figtree, sans-serif', fill: '#1b4332' } } };
+    }
 
     cells.push({
       id: linkId,
@@ -162,10 +190,27 @@ function importFromXmi(xmlString) {
       attrs: LINK_STYLES[type] || LINK_STYLES.association,
       labels: labels.filter(Boolean),
       umlType: type,
+      umlName: associationName || '',
     });
   });
 
-  return { cells };
+  const pending = cells.filter((item) => item._pendingGeneralization);
+  pending.forEach((item) => {
+    const sourceId = idMap[item.childOriginalId];
+    const targetId = idMap[item.parentOriginalId];
+    if (!sourceId || !targetId) return;
+    cells.push({
+      id: item.linkOriginalId || generateId('link'),
+      type: 'standard.Link',
+      source: { id: sourceId },
+      target: { id: targetId },
+      attrs: LINK_STYLES.inheritance,
+      labels: [],
+      umlType: 'inheritance',
+    });
+  });
+
+  return { cells: cells.filter((item) => !item._pendingGeneralization) };
 }
 
 module.exports = { importFromXmi };

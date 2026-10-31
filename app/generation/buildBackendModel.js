@@ -92,7 +92,8 @@ function buildBackendModel(uml, options = {}) {
     configuration: {
       springBootVersion: '3.3.5',
       javaVersion: '17',
-      database: options.database === 'postgresql' ? 'postgresql' : 'h2',
+      database:
+        options.database === 'postgresql' || options.database === 'mongodb' ? options.database : 'h2',
       datasource: resolveDatasource(options),
     },
   };

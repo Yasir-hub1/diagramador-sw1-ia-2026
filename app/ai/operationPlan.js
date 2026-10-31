@@ -6,8 +6,8 @@ const ALLOWED_KEYS = {
   'class:add': new Set(['op', 'className', 'stereotype', 'attributes', 'methods', 'position']),
   'class:update': new Set(['op', 'className', 'newClassName', 'stereotype', 'attributes', 'methods']),
   'class:remove': new Set(['op', 'className']),
-  'link:add': new Set(['op', 'className', 'targetClassName', 'relationType', 'sourceMultiplicity', 'targetMultiplicity']),
-  'link:update': new Set(['op', 'className', 'targetClassName', 'relationType', 'sourceMultiplicity', 'targetMultiplicity']),
+  'link:add': new Set(['op', 'className', 'targetClassName', 'relationType', 'sourceMultiplicity', 'targetMultiplicity', 'name', 'label']),
+  'link:update': new Set(['op', 'className', 'targetClassName', 'relationType', 'sourceMultiplicity', 'targetMultiplicity', 'name', 'label']),
   'link:remove': new Set(['op', 'className', 'targetClassName', 'relationType']),
 };
 
@@ -397,8 +397,14 @@ function planLinkAdd(operation, snapshot) {
     sourceId: relation.sourceId,
     targetId: relation.targetId,
   };
-  if (multiplicity.sourceMultiplicity) data.sourceMultiplicity = multiplicity.sourceMultiplicity;
-  if (multiplicity.targetMultiplicity) data.targetMultiplicity = multiplicity.targetMultiplicity;
+  const associationName = String(operation.name || operation.label || '').trim();
+  if (multiplicity.sourceMultiplicity && ends.relationType !== 'inheritance' && ends.relationType !== 'realization') {
+    data.sourceMultiplicity = multiplicity.sourceMultiplicity;
+  }
+  if (multiplicity.targetMultiplicity && ends.relationType !== 'inheritance' && ends.relationType !== 'realization') {
+    data.targetMultiplicity = multiplicity.targetMultiplicity;
+  }
+  if (associationName) data.umlName = associationName;
   const label = RELATION_LABEL[ends.relationType];
   return {
     ok: true,
@@ -411,7 +417,8 @@ function planLinkAdd(operation, snapshot) {
         quoted(ends.sourceName) +
         ' a ' +
         quoted(ends.targetName) +
-        multiplicityPreview(multiplicity.sourceMultiplicity, multiplicity.targetMultiplicity),
+        multiplicityPreview(multiplicity.sourceMultiplicity, multiplicity.targetMultiplicity) +
+        (associationName ? ' ' + associationName : ''),
       data,
     },
   };
@@ -422,8 +429,9 @@ function planLinkUpdate(operation, snapshot) {
   if (!ends.ok) return ends;
   const multiplicity = multiplicityPair(operation);
   if (!multiplicity.ok) return multiplicity;
-  if (!multiplicity.sourceMultiplicity && !multiplicity.targetMultiplicity) {
-    return { ok: false, message: 'La actualización de la relación no trae multiplicidades.' };
+  const associationName = String(operation.name || operation.label || '').trim();
+  if (!multiplicity.sourceMultiplicity && !multiplicity.targetMultiplicity && !associationName) {
+    return { ok: false, message: 'La actualización de la relación no trae nombre ni multiplicidades.' };
   }
   const found = findRelations(snapshot, ends.relationType, ends.source.id, ends.target.id);
   if (found.length === 0) {
@@ -441,11 +449,22 @@ function planLinkUpdate(operation, snapshot) {
     found[0].targetMultiplicity = multiplicity.targetMultiplicity;
     patch.targetMultiplicity = multiplicity.targetMultiplicity;
   }
+  if (associationName) {
+    found[0].name = associationName;
+    patch.umlName = associationName;
+  }
   return {
     ok: true,
     value: {
       event: 'link:update',
-      preview: 'Actualizar ' + RELATION_LABEL[ends.relationType] + ' de ' + quoted(ends.sourceName) + ' a ' + quoted(ends.targetName),
+      preview:
+        'Actualizar ' +
+        RELATION_LABEL[ends.relationType] +
+        ' de ' +
+        quoted(ends.sourceName) +
+        ' a ' +
+        quoted(ends.targetName) +
+        (associationName ? ' ' + associationName : ''),
       data: { linkId: found[0].id, patch },
     },
   };
@@ -558,7 +577,37 @@ function interpretModelPayload(payload, snapshot, options = {}) {
     return invalid(warnings[0] || 'No pude convertir la respuesta en cambios del diagrama.', warnings.slice(1));
   }
   const typeNotes = applyAttributeSemantics(prepared, working);
-  return { reply, warnings: warnings.slice(0, 8), prepared, typeNotes: typeNotes.slice(0, 12) };
+  const kept = pruneUnsolicited(prepared, options.text);
+  return { reply, warnings: warnings.slice(0, 8), prepared: kept, typeNotes: typeNotes.slice(0, 12) };
+}
+
+function mentions(text, value) {
+  const name = String(value || '').trim();
+  if (!name) return false;
+  return new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(String(text || ''));
+}
+
+function pruneUnsolicited(prepared, text) {
+  const asked = String(text || '').trim();
+  if (!asked) return prepared;
+  const wantsMove = /muev|reposic|coloca|posici[oó]n/i.test(asked);
+  return prepared.filter((step) => {
+    if (step.event === 'class:update' && step.data.patch) {
+      if (step.data.patch.position && !wantsMove) delete step.data.patch.position;
+      const patch = step.data.patch;
+      return Boolean(patch.name || patch.attributes || patch.methods || patch.stereotype);
+    }
+    if (step.event === 'link:add' || step.event === 'link:update' || step.event === 'link:remove') {
+      const names = [...String(step.preview || '').matchAll(/«([^»]+)»/g)].map((item) => item[1]);
+      if (!names.length) return true;
+      return names.every((name) => mentions(asked, name));
+    }
+    if (step.event === 'class:add') {
+      if (step.data.position && !wantsMove) delete step.data.position;
+      return mentions(asked, step.data.name);
+    }
+    return true;
+  });
 }
 
 function applyAttributeSemantics(prepared, working) {
@@ -617,4 +666,4 @@ function addSemanticLink(prepared, working, relation, notes) {
   prepared.push(planned.value);
 }
 
-module.exports = { interpretModelPayload, normalizeAttribute, normalizeMethod };
+module.exports = { interpretModelPayload, normalizeAttribute, normalizeMethod, pruneUnsolicited };

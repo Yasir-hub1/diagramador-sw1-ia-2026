@@ -676,3 +676,40 @@ test('keeps the room conversation in the prompt and does not patch on a question
   assert.equal(review.prepared.length, 0);
   assert.match(review.reply, /id persistible/);
 });
+
+test('keeps named associations and drops unsolicited extra links', () => {
+  const snapshot = {
+    classes: [
+      { id: 'c1', name: 'Cliente', stereotype: 'none', attributes: [], methods: [], position: { x: 0, y: 0 } },
+      { id: 'p1', name: 'Pedido', stereotype: 'none', attributes: [], methods: [], position: { x: 20, y: 0 } },
+      { id: 'u1', name: 'Usuario', stereotype: 'none', attributes: [], methods: [], position: { x: 40, y: 0 } },
+      { id: 'a1', name: 'Administrador', stereotype: 'none', attributes: ['+ nivel: String'], methods: [], position: { x: 60, y: 0 } },
+    ],
+    relations: [],
+  };
+  const result = interpretModelPayload(
+    {
+      message: 'Actualicé nivel y nombré pertenece.',
+      operations: [
+        { op: 'class:update', className: 'Administrador', attributes: ['+ nivel: Integer'] },
+        {
+          op: 'link:add',
+          className: 'Cliente',
+          targetClassName: 'Pedido',
+          relationType: 'association',
+          name: 'pertenece',
+        },
+        { op: 'link:add', className: 'Pedido', targetClassName: 'Usuario', relationType: 'association' },
+        { op: 'class:update', className: 'Administrador', position: { x: 400, y: 80 } },
+      ],
+    },
+    snapshot,
+    { text: 'cambia nivel a Integer y nombra la relacion pertenece entre Cliente y Pedido' }
+  );
+  const links = result.prepared.filter((step) => step.event === 'link:add');
+  assert.equal(links.length, 1);
+  assert.equal(links[0].data.umlName, 'pertenece');
+  const update = result.prepared.find((step) => step.event === 'class:update');
+  assert.ok(update.data.patch.attributes.some((line) => /nivel: Integer/.test(line)));
+  assert.equal(update.data.patch.position, undefined);
+});

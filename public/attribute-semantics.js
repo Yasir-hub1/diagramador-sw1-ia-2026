@@ -125,8 +125,8 @@
     if (includesAny(key, ['precio', 'price', 'monto', 'amount', 'saldo', 'costo', 'cost', 'total'])) {
       return { type: 'Double', reason: 'Importes y totales se modelan como Double para el backend.' };
     }
-    if (includesAny(key, ['edad', 'age', 'cantidad', 'stock', 'count', 'anio', 'ano', 'year', 'nota', 'score'])) {
-      return { type: 'Integer', reason: 'Edades, cantidades y años son enteros, no texto ni Double.' };
+    if (includesAny(key, ['edad', 'age', 'cantidad', 'stock', 'count', 'anio', 'ano', 'year', 'nota', 'score', 'nivel', 'level', 'orden', 'order', 'prioridad'])) {
+      return { type: 'Integer', reason: 'Edades, cantidades, niveles y años son enteros, no texto ni Double.' };
     }
     return {
       type: 'String',
@@ -151,11 +151,15 @@
     }
     const inferred = inferScalar(name);
     const current = normalizeJavaType(declaredType);
-    const changed = current !== inferred.type;
+    const declaredKnown = KNOWN_JAVA[String(declaredType || '').trim()] || (KNOWN_JAVA[current] && current !== 'String');
+    const weakDefault = inferred.type === 'String' && /sin una pista/i.test(inferred.reason);
+    const keepDeclared = Boolean(declaredKnown && current !== 'String' && (weakDefault || inferred.type === current));
+    const javaType = keepDeclared ? current : inferred.type;
+    const changed = current !== javaType;
     return {
       kind: 'field',
       name,
-      javaType: inferred.type,
+      javaType,
       changed,
       note: changed
         ? '«' + name + '»: ' + inferred.type + ' — ' + inferred.reason + ' (venía como ' + current + ').'

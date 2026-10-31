@@ -28,10 +28,10 @@ $(document).ready(function () {
 
   function resizePaperToViewport() {
     const el = document.getElementById("diagram");
-    if (!el) return;
+    if (!el || !graph.getCells().length) return;
     const pad = 400;
-    let maxX = el.clientWidth;
-    let maxY = el.clientHeight;
+    let maxX = Math.max(el.clientWidth, 1);
+    let maxY = Math.max(el.clientHeight, 1);
     graph.getElements().forEach((cell) => {
       const pos = cell.position();
       const size = cell.size();
@@ -130,6 +130,23 @@ $(document).ready(function () {
     if (!cell || !cell.isElement || !cell.isElement()) return;
     if (!cell.attr(".uml-class-name-rect")) return;
     cell.attr(classAttrs());
+    const name = cell.get("umlName");
+    const stereotype = cell.get("umlStereotype") || "none";
+    if (name) {
+      const display = classDisplayName(name, stereotype);
+      cell.set("name", display);
+      cell.attr(".uml-class-name-text/text", display);
+    }
+    const attributes = cell.get("umlAttributes");
+    if (Array.isArray(attributes)) {
+      cell.set("attributes", attributes);
+      cell.attr(".uml-class-attrs-text/text", attributes.join("\n"));
+    }
+    const methods = cell.get("umlMethods");
+    if (Array.isArray(methods)) {
+      cell.set("methods", methods);
+      cell.attr(".uml-class-methods-text/text", methods.join("\n"));
+    }
   }
 
   function restoreClassStroke(cell) {
@@ -162,7 +179,9 @@ $(document).ready(function () {
     if (patch.name !== undefined || patch.stereotype !== undefined) {
       const name = patch.name !== undefined ? patch.name : cell.get("umlName");
       const stereotype = patch.stereotype !== undefined ? patch.stereotype : cell.get("umlStereotype");
-      cell.attr(".uml-class-name-text/text", classDisplayName(name, stereotype));
+      const display = classDisplayName(name, stereotype);
+      cell.set("name", display);
+      cell.attr(".uml-class-name-text/text", display);
       cell.set("umlName", name);
       cell.set("umlStereotype", stereotype);
     }
@@ -195,14 +214,39 @@ $(document).ready(function () {
       line: { stroke: CLASS_STROKE, strokeWidth: 1.75, sourceMarker: { type: "path", d: "M 10 0 L 5 -5 L 0 0 L 5 5 Z", fill: CLASS_STROKE, stroke: CLASS_STROKE } },
     },
     inheritance: {
-      line: { stroke: CLASS_STROKE, strokeWidth: 1.75, targetMarker: { type: "path", d: "M 10 -5 0 0 10 5 Z", fill: "#ffffff", stroke: CLASS_STROKE } },
+      line: { stroke: CLASS_STROKE, strokeWidth: 2, targetMarker: { type: "path", d: "M 20 -10 0 0 20 10 Z", fill: "#ffffff", stroke: CLASS_STROKE } },
     },
     realization: {
       line: { stroke: CLASS_STROKE, strokeWidth: 1.75, strokeDasharray: "5 5", targetMarker: { type: "path", d: "M 10 -5 0 0 10 5 Z", fill: "#ffffff", stroke: CLASS_STROKE } },
     },
   };
 
-  function createLinkElement({ linkId, type, sourceId, targetId, sourceMultiplicity, targetMultiplicity }) {
+  function multiplicityLabel(text, distance) {
+    return {
+      position: { distance: distance, offset: 16 },
+      attrs: { text: { text: text, "font-size": 12, "font-family": "JetBrains Mono, monospace", fill: "#13211c" } },
+    };
+  }
+
+  function associationNameLabel(text) {
+    return {
+      position: 0.5,
+      attrs: { text: { text: text, "font-size": 11, "font-family": "Figtree, sans-serif", fill: "#1b4332" } },
+    };
+  }
+
+  function restyleLink(link) {
+    const type = link.get("umlType") || "association";
+    link.attr(LINK_STYLES[type] || LINK_STYLES.association);
+    if (type === "inheritance" || type === "realization") {
+      link.labels([]);
+      link.removeAttr("line/sourceMarker");
+    } else if (link.get("umlName")) {
+      link.label(2, associationNameLabel(link.get("umlName")));
+    }
+  }
+
+  function createLinkElement({ linkId, type, sourceId, targetId, sourceMultiplicity, targetMultiplicity, umlName }) {
     const link = new joint.shapes.standard.Link({
       id: linkId,
       source: { id: sourceId },
@@ -210,37 +254,56 @@ $(document).ready(function () {
       attrs: LINK_STYLES[type] || LINK_STYLES.association,
     });
     link.set("umlType", type);
-    if (sourceMultiplicity) {
-      link.label(0, { position: 0.1, attrs: { text: { text: sourceMultiplicity, "font-size": 12, "font-family": "JetBrains Mono, monospace", fill: "#13211c" } } });
-    }
-    if (targetMultiplicity) {
-      link.label(1, { position: 0.9, attrs: { text: { text: targetMultiplicity, "font-size": 12, "font-family": "JetBrains Mono, monospace", fill: "#13211c" } } });
+    if (type !== "inheritance" && type !== "realization") {
+      if (sourceMultiplicity) link.label(0, multiplicityLabel(sourceMultiplicity, 0.18));
+      if (targetMultiplicity) link.label(1, multiplicityLabel(targetMultiplicity, 0.82));
+      if (umlName) {
+        link.set("umlName", umlName);
+        link.label(2, associationNameLabel(umlName));
+      }
     }
     graph.addCell(link);
     return link;
   }
 
   function applyLinkPatch(link, patch) {
+    const type = link.get("umlType");
+    if (type === "inheritance" || type === "realization") return;
     if (patch.sourceMultiplicity !== undefined) {
-      link.label(0, { position: 0.1, attrs: { text: { text: patch.sourceMultiplicity, "font-size": 12, "font-family": "JetBrains Mono, monospace", fill: "#13211c" } } });
+      link.label(0, multiplicityLabel(patch.sourceMultiplicity, 0.18));
     }
     if (patch.targetMultiplicity !== undefined) {
-      link.label(1, { position: 0.9, attrs: { text: { text: patch.targetMultiplicity, "font-size": 12, "font-family": "JetBrains Mono, monospace", fill: "#13211c" } } });
+      link.label(1, multiplicityLabel(patch.targetMultiplicity, 0.82));
+    }
+    if (patch.umlName !== undefined) {
+      link.set("umlName", patch.umlName);
+      link.label(2, associationNameLabel(patch.umlName));
     }
   }
 
-  // ---------- Carga inicial del grafo ----------
+  let graphRevision = Number(ROOM.initialGraph && ROOM.initialGraph.revision) || 0;
 
-  if (ROOM.initialGraph && Array.isArray(ROOM.initialGraph.cells) && ROOM.initialGraph.cells.length) {
+  function loadGraphJson(data) {
+    const incoming = data && Array.isArray(data.cells) ? data : { cells: [] };
+    graphRevision = Number(incoming.revision) || 0;
     applyingRemote = true;
-    graph.fromJSON(ROOM.initialGraph);
+    graph.fromJSON({ cells: incoming.cells });
     graph.getElements().forEach(paintClassElement);
-    graph.getLinks().forEach((link) => {
-      link.attr("line/stroke", CLASS_STROKE);
-      link.attr("line/strokeWidth", 1.75);
-    });
+    graph.getLinks().forEach(restyleLink);
     applyingRemote = false;
+    resizePaperToViewport();
+    return true;
   }
+
+  function syncGraphFromServer(data, force) {
+    if (!data || !Array.isArray(data.cells)) return false;
+    if (!data.cells.length && graph.getCells().length && !data.allowEmpty) return false;
+    const incomingRevision = Number(data.revision) || 0;
+    if (!force && incomingRevision && incomingRevision <= graphRevision) return false;
+    return loadGraphJson(data);
+  }
+
+  loadGraphJson(ROOM.initialGraph || { cells: [] });
 
   // ---------- Presencia y actividad ----------
 
@@ -248,6 +311,7 @@ $(document).ready(function () {
 
   function renderPresence(users) {
     const $list = $("#presenceList");
+    const $panel = $(".presence-panel");
     $list.empty();
     users.forEach((u) => {
       const $dot = $("<span>").addClass("dot").css("background", colorForUser(u.userId));
@@ -257,6 +321,8 @@ $(document).ready(function () {
       }
       $list.append($li);
     });
+    $("#presenceCount").text(String(users.length));
+    $panel.toggleClass("is-empty", users.length === 0);
 
     if (previousUserIds !== null) {
       const currentIds = users.map((u) => u.userId);
@@ -369,6 +435,7 @@ $(document).ready(function () {
   });
 
   socket.on("room:state", (data) => {
+    syncGraphFromServer(data.graphJson, true);
     renderPresence(data.users || []);
     Object.keys(data.lastEditors || {}).forEach((elementId) => {
       showLastEditor(elementId, data.lastEditors[elementId].userName);
@@ -377,6 +444,10 @@ $(document).ready(function () {
       const editor = data.activeEditors[elementId];
       showEditingBadge(elementId, editor.userId, editor.userName);
     });
+  });
+
+  socket.on("graph:sync", (data) => {
+    syncGraphFromServer(data && data.graphJson);
   });
 
   socket.on("presence:update", (data) => renderPresence(data.users || []));
@@ -443,11 +514,29 @@ $(document).ready(function () {
 
   // ---------- Autosave con debounce ----------
 
+  let allowEmptySave = false;
+
+  function graphPayload() {
+    const graphJson = graph.toJSON();
+    graphJson.revision = graphRevision;
+    (graphJson.cells || []).forEach((cell) => {
+      if (cell.type !== "uml.Class" || !cell.umlName) return;
+      cell.name = classDisplayName(cell.umlName, cell.umlStereotype || "none");
+      cell.attributes = cell.umlAttributes || cell.attributes || [];
+      cell.methods = cell.umlMethods || cell.methods || [];
+    });
+    if (allowEmptySave) graphJson.allowEmpty = true;
+    return graphJson;
+  }
+
   const scheduleSave = _.debounce(() => {
     setSaveStatus("Guardando…");
-    socket.emit("graph:save", { graphJson: graph.toJSON() }, (res) => {
+    socket.emit("graph:save", { graphJson: graphPayload() }, (res) => {
       if (res && res.ok) {
+        if (typeof res.revision === "number") graphRevision = res.revision;
         setSaveStatus("Guardado");
+      } else if (res && res.rejected) {
+        setSaveStatus("Sala actualizada");
       } else {
         setSaveStatus("Error al guardar");
         showToast(res && res.message ? res.message : "No se pudo guardar el diagrama en la base de datos.", "error");
@@ -459,15 +548,24 @@ $(document).ready(function () {
     scheduleSave.cancel();
     setSaveStatus("Guardando…");
     return new Promise((resolve) => {
-      socket.emit("graph:save", { graphJson: graph.toJSON() }, (res) => {
-        if (res && res.ok) setSaveStatus("Guardado");
-        else setSaveStatus("Error al guardar");
+      socket.emit("graph:save", { graphJson: graphPayload() }, (res) => {
+        if (res && res.ok) {
+          if (typeof res.revision === "number") graphRevision = res.revision;
+          setSaveStatus("Guardado");
+        } else if (res && res.rejected) {
+          setSaveStatus("Sala actualizada");
+          resolve({ ok: true, rejected: true });
+          return;
+        } else {
+          setSaveStatus("Error al guardar");
+        }
         resolve(res || { ok: false, message: "No se pudo guardar el diagrama." });
       });
     });
   }
 
   window.DiagramAPI.flushSave = flushSave;
+  window.DiagramAPI.graphPayload = graphPayload;
 
   graph.on("add remove change", () => {
     if (applyingRemote) return;
@@ -497,8 +595,13 @@ $(document).ready(function () {
   }
   function closeModal(id) {
     $("#" + id).removeClass("visible");
+    if (id === "modalAI") {
+      $("#modalAI").prop("hidden", true);
+      $("body").removeClass("ai-open");
+    }
   }
   function currentlyOpenModal() {
+    if ($("#modalAI").hasClass("visible")) return "modalAI";
     const $open = $(".modal-overlay.visible");
     return $open.length ? $open.attr("id") : null;
   }
@@ -756,6 +859,7 @@ $(document).ready(function () {
       return;
     }
     if (!confirm("¿Vaciar la pizarra? Se borrarán todas las clases y los vínculos.")) return;
+    allowEmptySave = true;
     const links = graph.getLinks().slice();
     const classes = graph.getElements().slice();
     links.forEach((link) => {
@@ -835,16 +939,22 @@ $(document).ready(function () {
       pendingLink = createLinkElement(data);
       socket.emit("link:add", data);
 
+      const createdType = currentRelationType;
       resetClassBorders();
       selectedSource = null;
       selectedTarget = null;
       currentRelationType = null;
       $("#diagram").removeClass("relation-mode");
 
-      $("#sourceMultiplicityInput").val("");
-      $("#targetMultiplicityInput").val("");
-      $("#multiplicityError").text("");
-      openModal("modalMultiplicity");
+      if (createdType === "inheritance" || createdType === "realization") {
+        pendingLink = null;
+      } else {
+        $("#associationNameInput").val("");
+        $("#sourceMultiplicityInput").val("");
+        $("#targetMultiplicityInput").val("");
+        $("#multiplicityError").text("");
+        openModal("modalMultiplicity");
+      }
     }
     updateSelectionInfo();
   });
@@ -862,13 +972,24 @@ $(document).ready(function () {
       showToast("Multiplicidad de destino inválida.", "warning");
       return;
     }
-    const patch = { sourceMultiplicity: source, targetMultiplicity: target };
+    const patch = {
+      sourceMultiplicity: source,
+      targetMultiplicity: target,
+      umlName: $("#associationNameInput").val().trim(),
+    };
     if (pendingLink) {
       applyLinkPatch(pendingLink, patch);
       socket.emit("link:update", { linkId: pendingLink.id, patch });
       pendingLink = null;
     }
     closeModal("modalMultiplicity");
+  });
+
+  $("#xmiImportBtn").on("click", function () {
+    $("#xmiFile").trigger("click");
+  });
+  $("#xmiFile").on("change", function () {
+    if (this.files && this.files[0]) $("#xmiImportForm").trigger("submit");
   });
 
   $("#addAssociation").on("click", () => addRelationship("association"));
@@ -880,7 +1001,10 @@ $(document).ready(function () {
 
   // Editar cardinalidad de una relación ya existente
   paper.on("link:pointerclick", (linkView) => {
+    const type = linkView.model.get("umlType");
+    if (type === "inheritance" || type === "realization") return;
     pendingLink = linkView.model;
+    $("#associationNameInput").val(pendingLink.get("umlName") || "");
     $("#sourceMultiplicityInput").val("");
     $("#targetMultiplicityInput").val("");
     $("#multiplicityError").text("");

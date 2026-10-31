@@ -45,4 +45,5 @@ test('writes Dio client, repository and Flutter screens without inventing endpoi
   assert.ok(files['trazo.project.json'].includes('flutter'));
   assert.match(files['lib/features/usuario/presentation/usuario_form_screen.dart'], /int\.tryParse|_nombre\.text\.trim\(\)\.isEmpty/);
   assert.match(files['lib/generated/models/usuario.dart'], /id != 0/);
+  assert.match(files['lib/features/usuario/data/usuario_repository.dart'], /\.\.\/\.\.\/\.\.\/generated\/api\/usuario_api.dart/);
 });

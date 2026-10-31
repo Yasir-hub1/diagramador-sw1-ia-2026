@@ -11,7 +11,7 @@ const SYSTEM_PROMPT = [
   '',
   'Responde SOLO un JSON con message, operations y warnings. Sin markdown y sin texto alrededor.',
   '{"op":"class:add","className":"Cliente","stereotype":"none","attributes":["- nombre: String"],"methods":["+ comprar(): void"]}',
-  '{"op":"link:add","className":"Cliente","targetClassName":"Pedido","relationType":"association","sourceMultiplicity":"1","targetMultiplicity":"0..*"}',
+  '{"op":"link:add","className":"Cliente","targetClassName":"Pedido","relationType":"association","name":"pertenece","sourceMultiplicity":"1","targetMultiplicity":"0..*"}',
   'Atributo: "visibilidad nombre: tipo". Método: "visibilidad nombre(params): tipo". Visibilidad + - # ~.',
   'stereotype: none, interface o abstract.',
   'relationType: association, dependency, aggregation, composition, inheritance, realization.',

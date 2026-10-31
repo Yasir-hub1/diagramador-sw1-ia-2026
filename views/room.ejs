@@ -22,48 +22,120 @@
     <div class="toolbar-backdrop" id="toolbarBackdrop" hidden></div>
 
     <aside class="toolbar" id="roomToolbar">
-      <a class="toolbar__back" href="/diagrams">Salas</a>
-      <p class="toolbar__kicker">«sala»</p>
-      <h1 class="toolbar__title"><%= diagramName %></h1>
+      <header class="toolbar__head">
+        <a class="toolbar__back" href="/diagrams">Salas</a>
+        <div class="toolbar__identity">
+          <p class="toolbar__kicker">«sala»</p>
+          <h1 class="toolbar__title"><%= diagramName %></h1>
+          <div id="connectionStatus"><span class="dot"></span><span id="connectionStatusText">Conectando…</span></div>
+        </div>
+        <div class="toolbar__actions" role="group" aria-label="Acciones de la sala">
+          <button type="button" id="shareRoomBtn" class="share">Invitar</button>
+          <button type="button" id="aiAssistantBtn" class="ai">IA</button>
+          <button type="button" id="appGenerateBtn" class="app">Aplicativo</button>
+        </div>
+      </header>
 
-      <div id="connectionStatus"><span class="dot"></span><span id="connectionStatusText">Conectando…</span></div>
+      <div class="toolbar__body">
+        <div class="toolbar-section">
+          <h2>Piezas</h2>
+          <button type="button" id="addUserClass">Nueva clase</button>
+          <button type="button" id="clearBoardBtn">Vaciar pizarra</button>
+        </div>
 
-      <button type="button" id="shareRoomBtn" class="share">Invitar a la sala</button>
-      <button type="button" id="aiAssistantBtn" class="ai">Pedirle a la IA</button>
-      <button type="button" id="appGenerateBtn" class="app">Generar aplicativo</button>
-      <a class="tool-link" href="/room/<%= shareToken %>/export.xmi">Descargar XMI</a>
+        <div class="toolbar-section">
+          <h2>Vínculos</h2>
+          <div class="toolbar-links">
+            <button type="button" id="addAssociation">Asociación</button>
+            <button type="button" id="addDependency">Dependencia</button>
+            <button type="button" id="addAggregation">Agregación</button>
+            <button type="button" id="addComposition">Composición</button>
+            <button type="button" id="addInheritance">Herencia</button>
+            <button type="button" id="addRealization">Realización</button>
+          </div>
+        </div>
 
-      <div class="toolbar-section">
-        <h2>Piezas</h2>
-        <button type="button" id="addUserClass">Nueva clase</button>
-        <button type="button" id="clearBoardBtn">Vaciar pizarra</button>
+        <div class="toolbar-section toolbar-section--file">
+          <h2>Archivo</h2>
+          <div class="toolbar-file">
+            <a class="tool-link" href="/room/<%= shareToken %>/export.xmi">Exportar XMI</a>
+            <form class="xmi-import" id="xmiImportForm" action="/room/<%= shareToken %>/import" method="post" enctype="multipart/form-data">
+              <button type="button" class="tool-link" id="xmiImportBtn">Importar XMI</button>
+              <input id="xmiFile" type="file" name="xmiFile" accept=".xmi,.xml,application/xml,text/xml" hidden>
+            </form>
+          </div>
+        </div>
       </div>
 
-      <div class="toolbar-section">
-        <h2>Vínculos</h2>
-        <button type="button" id="addAssociation">Asociación</button>
-        <button type="button" id="addDependency">Dependencia</button>
-        <button type="button" id="addAggregation">Agregación</button>
-        <button type="button" id="addComposition">Composición</button>
-        <button type="button" id="addInheritance">Herencia</button>
-        <button type="button" id="addRealization">Realización</button>
-      </div>
-
-      <div class="side-panel">
-        <h2>En la sala</h2>
-        <ul id="presenceList"></ul>
-      </div>
-
-      <div class="side-panel">
-        <h2>Qué sigue</h2>
-        <div id="selectionInfo">Elige un vínculo y luego marca el origen y el destino.</div>
-        <div id="saveStatus"></div>
-      </div>
+      <footer class="toolbar__foot">
+        <section class="presence-panel is-empty" aria-labelledby="presenceTitle">
+          <div class="presence-panel__head">
+            <h2 id="presenceTitle">Invitados</h2>
+            <span class="presence-count" id="presenceCount" aria-live="polite">0</span>
+          </div>
+          <ul id="presenceList"></ul>
+          <p class="presence-empty" id="presenceEmpty">Todavía no hay nadie aquí.</p>
+        </section>
+        <section class="status-panel" aria-live="polite">
+          <div id="selectionInfo">Elige un vínculo y luego marca el origen y el destino.</div>
+          <div id="saveStatus"></div>
+        </section>
+      </footer>
     </aside>
 
     <div class="canvas">
       <div id="diagram" role="application" aria-label="Lienzo del diagrama UML"></div>
     </div>
+
+    <aside class="ai-dock" id="modalAI" hidden>
+      <div class="modal-box modal-ai" role="complementary" aria-labelledby="modalAiTitle" aria-describedby="aiHint">
+        <h3 id="modalAiTitle">Asistente UML de la sala</h3>
+        <div id="aiChatLog" aria-live="polite"></div>
+        <div id="aiAttachment" class="ai-attachment" hidden>
+          <img id="aiAttachmentPreview" alt="Vista previa del diagrama adjunto">
+          <div class="ai-attachment__meta">
+            <p id="aiAttachmentName"></p>
+            <p id="aiAttachmentSize"></p>
+          </div>
+          <button type="button" id="aiAttachmentRemove">Quitar</button>
+        </div>
+        <p id="aiStatus" class="ai-status" role="status" hidden></p>
+        <section id="aiProposal" class="ai-proposal" aria-label="Propuesta de la IA" hidden>
+          <p class="ai-proposal__kicker">Cambio propuesto</p>
+          <p id="aiProposalMessage"></p>
+          <p class="ai-proposal__kicker ai-proposal__kicker--ops">Cambios a aplicar</p>
+          <ol id="aiProposalOps"></ol>
+          <div id="aiProposalTypesBlock" hidden>
+            <p class="ai-proposal__kicker">Por qué estos tipos</p>
+            <ul id="aiProposalTypes"></ul>
+          </div>
+          <div id="aiProposalWarningBlock">
+            <p class="ai-proposal__kicker">Para revisar</p>
+            <ul id="aiProposalWarnings"></ul>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="cancel" id="aiProposalCancel">Cancelar</button>
+            <button type="button" class="save" id="aiProposalApply">Aplicar en la sala</button>
+          </div>
+        </section>
+        <div class="ai-input-row">
+          <label class="ai-file" id="aiImageLabel">
+            <input type="file" id="aiImageInput" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 9.2 12.2 5a2.4 2.4 0 0 1 3.4 3.4l-5.8 5.8a3.2 3.2 0 0 1-4.5-4.5l5.5-5.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span class="visually-hidden">Adjuntar imagen</span>
+          </label>
+          <input type="text" id="aiTextInput" placeholder="Revisa tipos, explica una relación o pide un cambio" autocomplete="off" aria-describedby="aiHint">
+          <button type="button" id="aiMicBtn" title="Mantén presionado para dictar. La transcripción usa internet." aria-label="Grabar voz">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="2.5" width="6" height="9" rx="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4.5 9.5a5.5 5.5 0 0 0 11 0M10 15v2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          </button>
+          <button type="button" id="aiSendBtn">Enviar</button>
+        </div>
+        <p class="ai-hint" id="aiHint"><% if (aiProvider === 'openai') { %>Panel de IA, separado de la generación. Responde a quien pregunta. Escribe, adjunta o dicta.<% } else { %>Panel de IA, separado de la generación. Responde a quien pregunta. El micrófono necesita OPENAI_API_KEY.<% } %></p>
+        <div class="modal-actions">
+          <button type="button" class="cancel" data-close="modalAI">Cerrar</button>
+        </div>
+      </div>
+    </aside>
   </div>
 
   <div id="toastContainer" aria-live="polite"></div>
@@ -142,56 +214,6 @@
     </div>
   </div>
 
-  <div class="modal-overlay" id="modalAI">
-    <div class="modal-box modal-ai" role="dialog" aria-modal="true" aria-labelledby="modalAiTitle" aria-describedby="aiHint">
-      <h3 id="modalAiTitle">Asistente UML de la sala</h3>
-      <div id="aiChatLog" aria-live="polite"></div>
-      <div id="aiAttachment" class="ai-attachment" hidden>
-        <img id="aiAttachmentPreview" alt="Vista previa del diagrama adjunto">
-        <div class="ai-attachment__meta">
-          <p id="aiAttachmentName"></p>
-          <p id="aiAttachmentSize"></p>
-        </div>
-        <button type="button" id="aiAttachmentRemove">Quitar</button>
-      </div>
-      <p id="aiStatus" class="ai-status" role="status" hidden></p>
-      <section id="aiProposal" class="ai-proposal" aria-label="Propuesta de la IA" hidden>
-        <p class="ai-proposal__kicker">Cambio propuesto</p>
-        <p id="aiProposalMessage"></p>
-        <p class="ai-proposal__kicker ai-proposal__kicker--ops">Cambios a aplicar</p>
-        <ol id="aiProposalOps"></ol>
-        <div id="aiProposalTypesBlock" hidden>
-          <p class="ai-proposal__kicker">Por qué estos tipos</p>
-          <ul id="aiProposalTypes"></ul>
-        </div>
-        <div id="aiProposalWarningBlock">
-          <p class="ai-proposal__kicker">Para revisar</p>
-          <ul id="aiProposalWarnings"></ul>
-        </div>
-        <div class="modal-actions">
-          <button type="button" class="cancel" id="aiProposalCancel">Cancelar</button>
-          <button type="button" class="save" id="aiProposalApply">Aplicar en la sala</button>
-        </div>
-      </section>
-      <div class="ai-input-row">
-        <label class="ai-file" id="aiImageLabel">
-          <input type="file" id="aiImageInput" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp">
-          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 9.2 12.2 5a2.4 2.4 0 0 1 3.4 3.4l-5.8 5.8a3.2 3.2 0 0 1-4.5-4.5l5.5-5.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <span class="visually-hidden">Adjuntar imagen</span>
-        </label>
-        <input type="text" id="aiTextInput" placeholder="Revisa tipos, explica una relación o pide un cambio" autocomplete="off" aria-describedby="aiHint">
-        <button type="button" id="aiMicBtn" title="Mantén presionado para dictar. La transcripción usa internet." aria-label="Grabar voz">
-          <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="2.5" width="6" height="9" rx="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4.5 9.5a5.5 5.5 0 0 0 11 0M10 15v2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-        </button>
-        <button type="button" id="aiSendBtn">Enviar</button>
-      </div>
-      <p class="ai-hint" id="aiHint"><% if (aiProvider === 'openai') { %>Chat compartido de la sala. Revisa, pregunta o pide cambios. Escribe, adjunta una imagen o mantén el micrófono para dictar.<% } else { %>Chat compartido de la sala. Revisa, pregunta o pide cambios. Escribe o adjunta una imagen. El micrófono necesita OPENAI_API_KEY.<% } %></p>
-      <div class="modal-actions">
-        <button type="button" class="cancel" data-close="modalAI">Cerrar</button>
-      </div>
-    </div>
-  </div>
-
   <div class="modal-overlay" id="modalApp">
     <div class="modal-box modal-app" role="dialog" aria-modal="true" aria-labelledby="modalAppTitle">
       <h3 id="modalAppTitle">Generar aplicativo</h3>
@@ -202,6 +224,7 @@
             <select id="backendDatabase">
               <option value="h2">H2 en memoria</option>
               <option value="postgresql">PostgreSQL</option>
+              <option value="mongodb">MongoDB</option>
             </select>
             <label class="backend-check">
               <input type="checkbox" id="backendUseAi">
@@ -252,7 +275,7 @@
                 <span id="phoneLink">API · —</span>
               </div>
               <div class="phone-app" id="phoneApp">
-                <p class="phone-empty">Genera para ver la app.</p>
+                <p class="phone-empty">Abre este cuadro para ver el UML en la app.</p>
               </div>
             </div>
             <div class="phone-chin"></div>
@@ -265,6 +288,8 @@
   <div class="modal-overlay" id="modalMultiplicity">
     <div class="modal-box" role="dialog" aria-labelledby="modalMultTitle">
       <h3 id="modalMultTitle">Cuántos en cada extremo</h3>
+      <label for="associationNameInput">Nombre de la asociación</label>
+      <input type="text" id="associationNameInput" placeholder="Ej: inscritoEn" autocomplete="off">
       <label for="sourceMultiplicityInput">Origen</label>
       <input type="text" id="sourceMultiplicityInput" placeholder="Ej: 1, 0..1, *, 0..*, 1..*" autocomplete="off">
       <label for="targetMultiplicityInput">Destino</label>
@@ -296,8 +321,8 @@
     };
     window.Toast.fromFlash(<%- JSON.stringify(typeof flash !== 'undefined' ? flash : null) %>);
   </script>
-  <script src="/room.js"></script>
   <script src="/diagram-snapshot.js"></script>
+  <script src="/room.js"></script>
   <script src="/ai-assistant.js"></script>
   <script src="/json-fields.js"></script>
   <script src="/backend-generator.js"></script>

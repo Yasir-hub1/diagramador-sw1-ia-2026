@@ -171,10 +171,68 @@ $(document).ready(function () {
     } catch (_error) {}
   }
 
+  function liveGraphJson() {
+    if (api && api.graphPayload) return api.graphPayload();
+    return api && api.graph ? api.graph.toJSON() : undefined;
+  }
+
+  async function loadLivePreview() {
+    if (!api || !api.ROOM || !$("#modalApp").hasClass("visible")) return;
+    setStatus("Actualizando la app desde el UML…");
+    try {
+      const response = await fetch("/api/backend/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          shareToken: api.ROOM.shareToken,
+          database: $("#backendDatabase").val() || "h2",
+          graphJson: liveGraphJson(),
+        }),
+      });
+      const data = await response.json().catch(function () {
+        return {};
+      });
+      if (!response.ok) {
+        setStatus(data.error || "No se pudo leer el UML para la app.");
+        return;
+      }
+      renderTypeNotes(data.typeNotes);
+      renderWarnings(data.errors && data.errors.length ? data.errors : data.warnings);
+      renderChanges(data.changes);
+      renderPreview({ preview: data.preview, downloadReady: false, runtime: {} });
+      if (window.TrazoApp && window.TrazoApp.fromUml) window.TrazoApp.fromUml(data.phone);
+      setStatus(
+        data.ok ? "App en vivo desde el UML. Genera solo para ZIP o arrancar la API." : "El UML aún no se puede generar."
+      );
+    } catch (_error) {
+      setStatus("No se pudo leer el UML para la app.");
+    }
+  }
+
+  const refreshLivePreview = window._ && _.debounce ? _.debounce(loadLivePreview, 250) : loadLivePreview;
+
   $("#appGenerateBtn").on("click", function () {
     $("#modalApp").addClass("visible");
     loadTools();
+    loadLivePreview();
   });
+
+  if (socket) {
+    ["graph:sync", "class:updated", "class:added", "class:removed", "link:added", "link:updated", "link:removed"].forEach(
+      function (eventName) {
+        socket.on(eventName, refreshLivePreview);
+      }
+    );
+  }
+
+  if (api && api.graph) {
+    api.graph.on("add remove change", function () {
+      refreshLivePreview();
+    });
+  }
+
+  $("#backendDatabase").on("change", loadLivePreview);
 
   $("#backendForm").on("submit", async function (evt) {
     evt.preventDefault();

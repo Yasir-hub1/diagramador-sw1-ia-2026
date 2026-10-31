@@ -25,6 +25,14 @@ async function loadReadableDiagram(shareToken, userId) {
   return diagram;
 }
 
+function addressReply(userName, reply) {
+  const name = String(userName || '').trim();
+  const text = String(reply || '').trim();
+  if (!name || !text) return text;
+  if (/^para\s+/i.test(text)) return text;
+  return 'Para ' + name + ': ' + text;
+}
+
 function displayText(text, imageBase64, source) {
   const instruction = String(text || '').trim();
   if (imageBase64 && instruction) return instruction + '\n[imagen adjunta]';
@@ -76,6 +84,8 @@ async function createDiagramProposal({ userId, userName, shareToken, text, image
     throw error;
   }
 
+  interpreted.reply = addressReply(userName, interpreted.reply);
+
   const assistantMessage = await roomChat.appendMessage(diagram, {
     role: 'assistant',
     userId: null,
@@ -116,4 +126,4 @@ async function createDiagramProposal({ userId, userName, shareToken, text, image
   };
 }
 
-module.exports = { createDiagramProposal, loadReadableDiagram, displayText };
+module.exports = { createDiagramProposal, loadReadableDiagram, displayText, addressReply };

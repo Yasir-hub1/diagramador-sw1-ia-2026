@@ -75,17 +75,23 @@ function parseUmlModel(snapshot, diagramId) {
     attributes: (item.attributes || []).map(parseAttribute).filter(Boolean),
     methods: (item.methods || []).map(parseMethod).filter(Boolean),
   })).map(ensureClassIdentifier);
-  const relationships = (snapshot.relations || []).map((item) => ({
-    id: item.id,
-    type: item.type,
-    sourceId: item.sourceId,
-    targetId: item.targetId,
-    sourceName: item.sourceName,
-    targetName: item.targetName,
-    sourceMultiplicity: item.sourceMultiplicity || '1',
-    targetMultiplicity: item.targetMultiplicity || '1',
-    kind: relationKind(item.sourceMultiplicity, item.targetMultiplicity),
-  }));
+  const relationships = (snapshot.relations || []).map((item) => {
+    const structural = item.type === 'inheritance' || item.type === 'realization';
+    const sourceMultiplicity = structural ? item.sourceMultiplicity || '' : item.sourceMultiplicity || '1';
+    const targetMultiplicity = structural ? item.targetMultiplicity || '' : item.targetMultiplicity || '1';
+    return {
+      id: item.id,
+      type: item.type,
+      sourceId: item.sourceId,
+      targetId: item.targetId,
+      sourceName: item.sourceName,
+      targetName: item.targetName,
+      name: item.name || '',
+      sourceMultiplicity,
+      targetMultiplicity,
+      kind: structural ? 'GENERALIZATION' : relationKind(sourceMultiplicity, targetMultiplicity),
+    };
+  });
   const uml = { diagramId: String(diagramId || ''), classes, relationships };
   uml.typeNotes = semantics.applySemanticsToUml(uml);
   return uml;

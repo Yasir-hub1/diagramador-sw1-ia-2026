@@ -9,6 +9,8 @@ const { emitGeneration } = require('../generation/bus');
 const { startProcess, stopProcess } = require('../generation/springProcess');
 const { proxyToGeneratedApi } = require('../generation/apiProxy');
 const { inspectRuntime } = require('../generation/tools');
+const { previewFromDiagram } = require('../generation/previewUml');
+const { resolveDatabase } = require('../generation/databaseChoice');
 
 const router = express.Router();
 
@@ -27,7 +29,7 @@ router.post('/api/backend/generate', requireApiAuth, async (req, res) => {
     emitGeneration(diagram.share_token, 'generation:started', toClient(job));
     setImmediate(() => {
       runGeneration(job, diagram, {
-        database: req.body.database === 'postgresql' ? 'postgresql' : 'h2',
+        database: resolveDatabase(req.body.database),
         useAi: Boolean(req.body.useAi),
       }).catch(() => {});
     });
@@ -50,6 +52,26 @@ router.get('/api/backend/jobs/:jobId/download', requireApiAuth, (req, res) => {
   }
   res.download(job.zipPath, job.zipName || 'trazo-backend-project.zip');
 });
+
+function previewHandler(req, res) {
+  return loadReadableDiagram(req.body.shareToken || req.query.shareToken, req.session.userId)
+    .then((diagram) => {
+      try {
+        res.json(
+          previewFromDiagram(diagram, {
+            database: resolveDatabase(req.body.database || req.query.database),
+            graphJson: req.body.graphJson,
+          })
+        );
+      } catch (error) {
+        sendError(res, error);
+      }
+    })
+    .catch((error) => sendError(res, error));
+}
+
+router.get('/api/backend/preview', requireApiAuth, previewHandler);
+router.post('/api/backend/preview', requireApiAuth, previewHandler);
 
 router.get('/api/backend/tools', requireApiAuth, (_req, res) => {
   res.json(inspectRuntime());

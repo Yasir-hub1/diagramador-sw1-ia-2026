@@ -7,6 +7,7 @@ const { createJob, getJob, toClient } = require('../flutter/flutterJobs');
 const { runFlutterGeneration } = require('../flutter/generateFlutter');
 const { runFullStackGeneration } = require('../flutter/generateFullStack');
 const { emitGeneration } = require('../generation/bus');
+const { resolveDatabase } = require('../generation/databaseChoice');
 
 const router = express.Router();
 
@@ -39,7 +40,7 @@ router.post('/api/fullstack/generate', requireApiAuth, async (req, res) => {
     emitGeneration(diagram.share_token, 'flutter:generation:started', toClient(job));
     setImmediate(() => {
       runFullStackGeneration(job, diagram, {
-        database: req.body.database === 'postgresql' ? 'postgresql' : 'h2',
+        database: resolveDatabase(req.body.database),
       }).catch(() => {});
     });
     res.status(202).json(toClient(job));

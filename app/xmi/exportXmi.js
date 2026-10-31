@@ -46,12 +46,31 @@ function classDisplayId(id) {
   return escapeXml(id);
 }
 
+function primitiveHref(type) {
+  const name = String(type || 'String');
+  return 'http://schema.omg.org/spec/UML/2.1/uml.xml#' + escapeXml(name);
+}
+
+function linkName(link) {
+  return String(link.umlName || link.name || '').trim();
+}
+
 function exportToXmi(graphData, diagramName) {
   const cells = (graphData && graphData.cells) || [];
   const classes = cells.filter((c) => c.type === 'uml.Class');
   const links = cells.filter((c) => c.type === 'standard.Link');
   const classById = {};
   classes.forEach((c) => (classById[c.id] = c));
+
+  const generalizationsByChild = {};
+  links.forEach((link) => {
+    if ((link.umlType || 'association') !== 'inheritance') return;
+    const childId = link.source && link.source.id;
+    const parentId = link.target && link.target.id;
+    if (!classById[childId] || !classById[parentId]) return;
+    if (!generalizationsByChild[childId]) generalizationsByChild[childId] = [];
+    generalizationsByChild[childId].push(link);
+  });
 
   const classXml = classes
     .map((cls) => {
@@ -63,7 +82,7 @@ function exportToXmi(graphData, diagramName) {
         .filter(Boolean)
         .map(
           (a) =>
-            `      <ownedAttribute xmi:id="${classDisplayId(cls.id)}_attr_${escapeXml(a.name)}" name="${escapeXml(a.name)}" visibility="${a.visibility}" type="${escapeXml(a.type)}"/>`
+            `      <ownedAttribute xmi:id="${classDisplayId(cls.id)}_attr_${escapeXml(a.name)}" name="${escapeXml(a.name)}" visibility="${a.visibility}">\n        <type xmi:type="uml:PrimitiveType" href="${primitiveHref(a.type)}"/>\n      </ownedAttribute>`
         )
         .join('\n');
       const methods = (cls.umlMethods || cls.methods || [])
@@ -76,7 +95,7 @@ function exportToXmi(graphData, diagramName) {
           return [
             `      <ownedOperation xmi:id="${classDisplayId(cls.id)}_op_${escapeXml(m.name)}" name="${escapeXml(m.name)}" visibility="${m.visibility}">`,
             paramsXml,
-            `        <ownedParameter name="return" direction="return" type="${escapeXml(m.returnType)}"/>`,
+            `        <ownedParameter name="return" direction="return">\n          <type xmi:type="uml:PrimitiveType" href="${primitiveHref(m.returnType)}"/>\n        </ownedParameter>`,
             `      </ownedOperation>`,
           ]
             .filter(Boolean)
@@ -87,6 +106,12 @@ function exportToXmi(graphData, diagramName) {
         `    <packagedElement xmi:type="${xmiType}" xmi:id="${classDisplayId(cls.id)}" name="${escapeXml(cls.umlName || cls.name)}"${abstractAttr}>`,
         attrs,
         methods,
+        (generalizationsByChild[cls.id] || [])
+          .map(
+            (link) =>
+              `      <generalization xmi:type="uml:Generalization" xmi:id="${escapeXml(link.id)}" general="${classDisplayId(link.target.id)}"/>`
+          )
+          .join('\n'),
         `    </packagedElement>`,
       ]
         .filter(Boolean)
@@ -106,16 +131,14 @@ function exportToXmi(graphData, diagramName) {
       const sourceMultiplicity = labels[0] && labels[0].attrs && labels[0].attrs.text && labels[0].attrs.text.text;
       const targetMultiplicity = labels[1] && labels[1].attrs && labels[1].attrs.text && labels[1].attrs.text.text;
 
-      if (xmiType === 'uml:Generalization') {
-        return `    <packagedElement xmi:type="uml:Generalization" xmi:id="${escapeXml(link.id)}" general="${classDisplayId(targetId)}" specific="${classDisplayId(sourceId)}"/>`;
-      }
+      if (xmiType === 'uml:Generalization') return '';
       if (xmiType === 'uml:Realization' || xmiType === 'uml:Dependency') {
         return `    <packagedElement xmi:type="${xmiType}" xmi:id="${escapeXml(link.id)}" client="${classDisplayId(sourceId)}" supplier="${classDisplayId(targetId)}"/>`;
       }
 
       const aggregationKind = type === 'composition' ? 'composite' : type === 'aggregation' ? 'shared' : 'none';
       return [
-        `    <packagedElement xmi:type="uml:Association" xmi:id="${escapeXml(link.id)}" name="${escapeXml(type)}">`,
+        `    <packagedElement xmi:type="uml:Association" xmi:id="${escapeXml(link.id)}" name="${escapeXml(linkName(link) || type)}">`,
         `      <ownedEnd xmi:id="${escapeXml(link.id)}_end1" type="${classDisplayId(sourceId)}" aggregation="none">`,
         sourceMultiplicity ? `        <lowerValue xmi:type="uml:LiteralString" value="${escapeXml(sourceMultiplicity)}"/>` : '',
         `      </ownedEnd>`,

@@ -23,6 +23,15 @@ async function create(name, ownerId) {
   return result.rows[0];
 }
 
+async function findById(id) {
+  const result = await pool.query(
+    `SELECT id, name, share_token, owner_id, graph_data, created_at, updated_at
+       FROM diagrams WHERE id = $1`,
+    [id]
+  );
+  return result.rows[0] || null;
+}
+
 async function findByToken(token) {
   const result = await pool.query(
     `SELECT id, name, share_token, owner_id, graph_data, created_at, updated_at
@@ -98,6 +107,7 @@ async function getLastEditors(diagramId) {
 module.exports = {
   findAccessibleByUser,
   create,
+  findById,
   findByToken,
   updateGraphData,
   upsertCollaborator,

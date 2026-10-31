@@ -22,6 +22,14 @@
     return typeof text === 'string' ? text : '';
   }
 
+  function classNameOf(cell) {
+    const declared = String(cell.umlName || '').trim();
+    if (declared) return declared;
+    const raw = String(cell.name || '').replace(/^«[^»]+»\s*/u, '');
+    const lines = raw.split(/\n/).map((line) => line.trim()).filter(Boolean);
+    return lines[lines.length - 1] || '';
+  }
+
   function snapshotFromCells(cells) {
     const classes = [];
     const relations = [];
@@ -30,7 +38,7 @@
       if (cell.type === 'uml.Class') {
         classes.push({
           id: String(cell.id),
-          name: String(cell.umlName || ''),
+          name: classNameOf(cell),
           stereotype: cell.umlStereotype || 'none',
           attributes: asTextList(cell.umlAttributes),
           methods: asTextList(cell.umlMethods),
@@ -42,6 +50,7 @@
         relations.push({
           id: String(cell.id),
           type: String(cell.umlType),
+          name: String(cell.umlName || ''),
           sourceId: String(cell.source.id),
           targetId: String(cell.target.id),
           sourceMultiplicity: labelText(cell, 0),

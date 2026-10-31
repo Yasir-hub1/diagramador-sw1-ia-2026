@@ -5,11 +5,15 @@ function pkgPath(packageName) {
   return 'src/main/java/' + packageName.replace(/\./g, '/');
 }
 
-function fieldJava(attribute) {
+function usesMongo(configuration) {
+  return configuration && configuration.database === 'mongodb';
+}
+
+function fieldJava(attribute, configuration) {
   const lines = [];
   if (attribute.primaryKey) {
     lines.push('    @Id');
-    lines.push('    @GeneratedValue(strategy = GenerationType.IDENTITY)');
+    if (!usesMongo(configuration)) lines.push('    @GeneratedValue(strategy = GenerationType.IDENTITY)');
   }
   if (attribute.type === 'String' && attribute.name.toLowerCase().includes('email')) {
     lines.push('    @Email');
@@ -37,8 +41,10 @@ function accessors(attribute) {
   ].join('\n');
 }
 
-function extraImports(attributes) {
-  const imports = new Set(['jakarta.persistence.*', 'jakarta.validation.constraints.*', 'com.fasterxml.jackson.annotation.JsonFormat']);
+function extraImports(attributes, configuration) {
+  const imports = new Set(['jakarta.validation.constraints.*', 'com.fasterxml.jackson.annotation.JsonFormat']);
+  if (usesMongo(configuration)) imports.add('org.springframework.data.annotation.Id');
+  else imports.add('jakarta.persistence.*');
   attributes.forEach((item) => {
     const extra = javaImport(item.type);
     if (extra) imports.add(extra);
@@ -71,18 +77,19 @@ function relationFields(entity, relationships) {
   return lines.join('\n');
 }
 
-function entityFile(packageName, entity, relationships) {
+function entityFile(packageName, entity, relationships, configuration) {
+  const header = usesMongo(configuration)
+    ? ['import org.springframework.data.mongodb.core.mapping.Document;', '', '@Document(collection = "' + entity.table + '")']
+    : ['@Entity', '@Table(name = "' + entity.table + '")'];
   return [
     'package ' + packageName + '.entity;',
     '',
-    extraImports(entity.attributes),
-    '',
-    '@Entity',
-    '@Table(name = "' + entity.table + '")',
+    extraImports(entity.attributes, configuration),
+    header[0].startsWith('import') ? header.join('\n') : '\n' + header.join('\n'),
     'public class ' + entity.name + ' {',
     '',
-    entity.attributes.map(fieldJava).join('\n\n'),
-    relationFields(entity, relationships) ? '\n' + relationFields(entity, relationships) : '',
+    entity.attributes.map((item) => fieldJava(item, configuration)).join('\n\n'),
+    !usesMongo(configuration) && relationFields(entity, relationships) ? '\n' + relationFields(entity, relationships) : '',
     '',
     entity.attributes.map(accessors).join('\n\n'),
     '}',
@@ -124,21 +131,87 @@ function dtoFile(packageName, entity, kind) {
   ].join('\n');
 }
 
-function repositoryFile(packageName, entity) {
+function mongoSequenceService(packageName) {
   return [
-    'package ' + packageName + '.repository;',
+    'package ' + packageName + '.support;',
     '',
-    'import ' + packageName + '.entity.' + entity.name + ';',
-    'import org.springframework.data.jpa.repository.JpaRepository;',
+    'import org.springframework.data.annotation.Id;',
+    'import org.springframework.data.mongodb.core.FindAndModifyOptions;',
+    'import org.springframework.data.mongodb.core.MongoOperations;',
+    'import org.springframework.data.mongodb.core.mapping.Document;',
+    'import org.springframework.data.mongodb.core.query.Query;',
+    'import org.springframework.data.mongodb.core.query.Update;',
+    'import org.springframework.stereotype.Service;',
     '',
-    'public interface ' + entity.name + 'Repository extends JpaRepository<' + entity.name + ', Long> {',
+    'import static org.springframework.data.mongodb.core.query.Criteria.where;',
+    '',
+    '@Service',
+    'public class MongoSequenceService {',
+    '',
+    '    @Document(collection = "trazo_sequences")',
+    '    public static class Sequence {',
+    '        @Id',
+    '        private String id;',
+    '        private long value;',
+    '',
+    '        public String getId() { return id; }',
+    '        public void setId(String id) { this.id = id; }',
+    '        public long getValue() { return value; }',
+    '        public void setValue(long value) { this.value = value; }',
+    '    }',
+    '',
+    '    private final MongoOperations mongo;',
+    '',
+    '    public MongoSequenceService(MongoOperations mongo) {',
+    '        this.mongo = mongo;',
+    '    }',
+    '',
+    '    public long next(String collection) {',
+    '        Sequence next = mongo.findAndModify(',
+    '            Query.query(where("_id").is(collection)),',
+    '            new Update().inc("value", 1),',
+    '            FindAndModifyOptions.options().returnNew(true).upsert(true),',
+    '            Sequence.class',
+    '        );',
+    '        return next == null ? 1L : next.getValue();',
+    '    }',
     '}',
     '',
   ].join('\n');
 }
 
-function serviceFile(packageName, entity) {
+function repositoryFile(packageName, entity, configuration) {
+  const base = usesMongo(configuration)
+    ? 'org.springframework.data.mongodb.repository.MongoRepository'
+    : 'org.springframework.data.jpa.repository.JpaRepository';
+  return [
+    'package ' + packageName + '.repository;',
+    '',
+    'import ' + packageName + '.entity.' + entity.name + ';',
+    'import ' + base + ';',
+    '',
+    'public interface ' + entity.name + 'Repository extends ' + (usesMongo(configuration) ? 'MongoRepository' : 'JpaRepository') + '<' + entity.name + ', Long> {',
+    '}',
+    '',
+  ].join('\n');
+}
+
+function serviceFile(packageName, entity, configuration) {
   const repo = camel(entity.name) + 'Repository';
+  const mongo = usesMongo(configuration);
+  const fields = [
+    '    private final ' + entity.name + 'Repository ' + repo + ';',
+    mongo ? '    private final ' + packageName + '.support.MongoSequenceService mongoSequenceService;' : '',
+  ].filter(Boolean);
+  const ctorArgs = mongo
+    ? entity.name + 'Repository ' + repo + ', ' + packageName + '.support.MongoSequenceService mongoSequenceService'
+    : entity.name + 'Repository ' + repo;
+  const ctorBody = mongo
+    ? '        this.' + repo + ' = ' + repo + ';\n        this.mongoSequenceService = mongoSequenceService;'
+    : '        this.' + repo + ' = ' + repo + ';';
+  const createBody = mongo
+    ? '        entity.setId(mongoSequenceService.next("' + entity.table + '"));\n        return ' + repo + '.save(entity);'
+    : '        entity.setId(null);\n        return ' + repo + '.save(entity);';
   return [
     'package ' + packageName + '.service;',
     '',
@@ -153,10 +226,10 @@ function serviceFile(packageName, entity) {
     '@Service',
     'public class ' + entity.name + 'Service {',
     '',
-    '    private final ' + entity.name + 'Repository ' + repo + ';',
+    fields.join('\n'),
     '',
-    '    public ' + entity.name + 'Service(' + entity.name + 'Repository ' + repo + ') {',
-    '        this.' + repo + ' = ' + repo + ';',
+    '    public ' + entity.name + 'Service(' + ctorArgs + ') {',
+    ctorBody,
     '    }',
     '',
     '    public List<' + entity.name + '> list() {',
@@ -168,8 +241,7 @@ function serviceFile(packageName, entity) {
     '    }',
     '',
     '    public ' + entity.name + ' create(' + entity.name + ' entity) {',
-    '        entity.setId(null);',
-    '        return ' + repo + '.save(entity);',
+    createBody,
     '    }',
     '',
     '    public ' + entity.name + ' update(Long id, ' + entity.name + ' incoming) {',
@@ -266,6 +338,11 @@ function apiErrorHandler(packageName) {
     '    public ResponseEntity<Map<String, String>> unreadable(HttpMessageNotReadableException error) {',
     '        return ResponseEntity.badRequest().body(Map.of("error", "El JSON no coincide con los tipos del backend. Revisa números, booleanos y fechas."));',
     '    }',
+    '',
+    '    @ExceptionHandler(org.springframework.dao.DataAccessException.class)',
+    '    public ResponseEntity<Map<String, String>> data(org.springframework.dao.DataAccessException error) {',
+    '        return ResponseEntity.status(503).body(Map.of("error", "No se pudo persistir. Si usas MongoDB, arranca mongod; la base y las colecciones se crean al primer POST."));',
+    '    }',
     '}',
     '',
   ].join('\n');
@@ -290,7 +367,27 @@ function healthController(packageName) {
   ].join('\n');
 }
 
-function applicationFile(packageName) {
+function applicationFile(packageName, configuration) {
+  if (usesMongo(configuration)) {
+    return [
+      'package ' + packageName + ';',
+      '',
+      'import org.springframework.boot.SpringApplication;',
+      'import org.springframework.boot.autoconfigure.SpringBootApplication;',
+      'import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;',
+      'import org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration;',
+      'import org.springframework.data.mongodb.repository.config.EnableMongoRepositories;',
+      '',
+      '@SpringBootApplication(exclude = {DataSourceAutoConfiguration.class, HibernateJpaAutoConfiguration.class})',
+      '@EnableMongoRepositories',
+      'public class Application {',
+      '    public static void main(String[] args) {',
+      '        SpringApplication.run(Application.class, args);',
+      '    }',
+      '}',
+      '',
+    ].join('\n');
+  }
   return [
     'package ' + packageName + ';',
     '',
@@ -312,6 +409,25 @@ function yamlQuote(value) {
 }
 
 function applicationYml(configuration) {
+  if (usesMongo(configuration)) {
+    return [
+      'server:',
+      '  port: 8081',
+      'spring:',
+      '  data:',
+      '    mongodb:',
+      '      uri: mongodb://127.0.0.1:27017/trazo_generated',
+      '      database: trazo_generated',
+      '      auto-index-creation: true',
+      '  jackson:',
+      '    deserialization:',
+      '      fail-on-unknown-properties: false',
+      'springdoc:',
+      '  swagger-ui:',
+      '    path: /swagger-ui.html',
+      '',
+    ].join('\n');
+  }
   if (configuration.database === 'postgresql') {
     const db = configuration.datasource || {};
     const host = db.host || '127.0.0.1';
@@ -364,8 +480,12 @@ function applicationYml(configuration) {
 }
 
 function pomXml(model) {
-  const dbDep =
-    model.configuration.database === 'postgresql'
+  const dataStarter = usesMongo(model.configuration)
+    ? 'spring-boot-starter-data-mongodb'
+    : 'spring-boot-starter-data-jpa';
+  const dbDep = usesMongo(model.configuration)
+    ? ''
+    : model.configuration.database === 'postgresql'
       ? `        <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
@@ -404,7 +524,7 @@ function pomXml(model) {
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-jpa</artifactId>
+            <artifactId>${dataStarter}</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springdoc</groupId>
@@ -430,7 +550,9 @@ function readme(model) {
   const db =
     model.configuration.database === 'postgresql'
       ? 'PostgreSQL en ' + (source.host || '127.0.0.1') + ':' + (source.port || '5432') + '/' + (source.name || 'trazo_generated')
-      : 'H2 en memoria';
+      : usesMongo(model.configuration)
+        ? 'MongoDB en 127.0.0.1:27017. La base `trazo_generated` y cada colección se crean solas al primer POST.'
+        : 'H2 en memoria';
   return [
     '# TRAZO Generated Backend',
     '',
@@ -470,16 +592,19 @@ function writeSpringFiles(model, openApiYaml) {
     [root + 'openapi.yaml']: openApiYaml,
     [root + 'README.md']: readme(model),
     [root + 'src/main/resources/application.yml']: applicationYml(model.configuration),
-    [base + '/Application.java']: applicationFile(model.project.packageName),
+    [base + '/Application.java']: applicationFile(model.project.packageName, model.configuration),
     [base + '/controller/HealthController.java']: healthController(model.project.packageName),
     [base + '/controller/ApiErrorHandler.java']: apiErrorHandler(model.project.packageName),
   };
+  if (usesMongo(model.configuration)) {
+    files[base + '/support/MongoSequenceService.java'] = mongoSequenceService(model.project.packageName);
+  }
   model.entities.forEach((entity) => {
-    files[base + '/entity/' + entity.name + '.java'] = entityFile(model.project.packageName, entity, model.relationships);
+    files[base + '/entity/' + entity.name + '.java'] = entityFile(model.project.packageName, entity, model.relationships, model.configuration);
     files[base + '/dto/' + entity.name + 'CreateRequest.java'] = dtoFile(model.project.packageName, entity, 'CreateRequest');
     files[base + '/dto/' + entity.name + 'Response.java'] = dtoFile(model.project.packageName, entity, 'Response');
-    files[base + '/repository/' + entity.name + 'Repository.java'] = repositoryFile(model.project.packageName, entity);
-    files[base + '/service/' + entity.name + 'Service.java'] = serviceFile(model.project.packageName, entity);
+    files[base + '/repository/' + entity.name + 'Repository.java'] = repositoryFile(model.project.packageName, entity, model.configuration);
+    files[base + '/service/' + entity.name + 'Service.java'] = serviceFile(model.project.packageName, entity, model.configuration);
     files[base + '/controller/' + entity.name + 'Controller.java'] = controllerFile(model.project.packageName, entity);
   });
   return files;

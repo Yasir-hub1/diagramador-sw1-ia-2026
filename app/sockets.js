@@ -9,6 +9,7 @@ const roomChat = require('./ai/roomChat');
 const { emitGeneration } = require('./generation/bus');
 const { snapshotFromGraph, fingerprintOf } = require('../public/diagram-snapshot');
 const { LocalAiError } = require('./ai/errors');
+const graphStore = require('./diagramGraph');
 
 // Presencia en memoria: shareToken -> Map<socketId, {userId, userName}>
 const presenceByRoom = new Map();
@@ -232,6 +233,10 @@ function attachSockets(io, sessionMiddleware) {
         }
         const authorAlsoReceives = buildCtx(false);
         const applied = await applyPreparedSteps(io, authorAlsoReceives, proposal.prepared);
+        const latest = await diagramsRepository.findById(currentDiagramId);
+        if (latest && latest.graph_data) {
+          io.to(roomName(currentShareToken)).emit('graph:sync', { graphJson: latest.graph_data });
+        }
         const stoppedEarly = applied.skipped.length > 0;
         const reply = stoppedEarly
           ? userName + ' aplicó ' + applied.appliedCount + ' cambios y el resto se detuvo.'
@@ -277,9 +282,30 @@ function attachSockets(io, sessionMiddleware) {
 
     socket.on('graph:save', async ({ graphJson }, ack) => {
       if (!currentDiagramId || !graphJson) return;
+      const incoming = Array.isArray(graphJson.cells) ? graphJson.cells.length : 0;
+      if (incoming === 0 && !graphJson.allowEmpty) {
+        if (typeof ack === 'function') ack({ ok: true, skipped: true });
+        return;
+      }
       try {
-        await diagramsRepository.updateGraphData(currentDiagramId, graphJson);
-        if (typeof ack === 'function') ack({ ok: true });
+        const saved = await graphStore.replaceGraph(currentDiagramId, graphJson);
+        if (!saved || !saved.ok) {
+          if (saved && saved.graphJson && currentShareToken) {
+            socket.emit('graph:sync', { graphJson: saved.graphJson });
+          }
+          if (typeof ack === 'function') {
+            ack({
+              ok: false,
+              rejected: true,
+              message: 'El diagrama de la sala es más nuevo. Recargué el estado persistido.',
+            });
+          }
+          return;
+        }
+        if (currentShareToken) {
+          socket.to(roomName(currentShareToken)).emit('graph:sync', { graphJson: saved.graphJson });
+        }
+        if (typeof ack === 'function') ack({ ok: true, revision: saved.graphJson.revision });
       } catch (err) {
         console.error(err.message);
         if (typeof ack === 'function') {

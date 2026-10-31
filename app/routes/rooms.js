@@ -82,6 +82,26 @@ router.get('/room/:token', requireAuth, async (req, res) => {
   }
 });
 
+router.post('/room/:token/import', requireAuth, upload.single('xmiFile'), async (req, res) => {
+  const roomPath = '/room/' + req.params.token;
+  if (!req.file) {
+    return flashRedirect(req, res, roomPath, 'warning', 'Selecciona un archivo XMI para importar.');
+  }
+  try {
+    const diagram = await diagramsRepository.findByToken(req.params.token);
+    if (!diagram) return flashRedirect(req, res, '/diagrams', 'error', 'Sala no encontrada.');
+    const allowed = await diagramsRepository.userCanAccess(diagram.id, diagram.owner_id, req.session.userId);
+    if (!allowed) return flashRedirect(req, res, '/diagrams', 'error', 'No tienes acceso a esta sala.');
+    const graphData = importFromXmi(req.file.buffer.toString('utf8'));
+    await diagramsRepository.updateGraphData(diagram.id, graphData);
+    req.session.flash = { type: 'success', message: 'XMI importado en esta sala.' };
+    req.session.save(() => res.redirect(roomPath));
+  } catch (err) {
+    console.error(err.message);
+    flashRedirect(req, res, roomPath, 'error', 'No se pudo importar el XMI: ' + err.message);
+  }
+});
+
 router.get('/room/:token/export.xmi', requireAuth, async (req, res) => {
   try {
     const diagram = await diagramsRepository.findByToken(req.params.token);

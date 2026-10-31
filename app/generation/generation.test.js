@@ -190,6 +190,72 @@ test('coerces form text to Spring JSON types and omits blanks', () => {
   assert.deepEqual(payload.body, { nombre: 'Ana', activo: true });
 });
 
+test('keeps an explicit Integer when the name has no stronger hint', () => {
+  const uml = parseUmlModel(
+    {
+      classes: [
+        {
+          id: 'c1',
+          name: 'Curso',
+          attributes: ['- id: Long', '+ cupo: Integer', '+ nivel: String'],
+          methods: [],
+        },
+      ],
+      relations: [],
+    },
+    'd1'
+  );
+  const curso = uml.classes.find((item) => item.name === 'Curso');
+  const cupo = curso.attributes.find((item) => item.name === 'cupo');
+  const nivel = curso.attributes.find((item) => item.name === 'nivel');
+  assert.equal(cupo.type, 'Integer');
+  assert.equal(nivel.type, 'Integer');
+});
+
+test('writes a MongoDB document entity instead of JPA', () => {
+  const backend = buildBackendModel(parseUmlModel(sampleSnapshot(), 'd1'), { database: 'mongodb' });
+  assert.equal(backend.configuration.database, 'mongodb');
+  const files = writeSpringFiles(backend, 'openapi: 3.0.3\n');
+  const usuario = files[Object.keys(files).find((name) => name.endsWith('/entity/Usuario.java'))];
+  const pom = files[Object.keys(files).find((name) => name.endsWith('pom.xml'))];
+  const yml = files[Object.keys(files).find((name) => name.endsWith('application.yml'))];
+  assert.match(usuario, /@Document/);
+  assert.doesNotMatch(usuario, /@Entity/);
+  assert.match(pom, /spring-boot-starter-data-mongodb/);
+  assert.match(yml, /mongodb:\/\/127\.0\.0\.1:27017\/trazo_generated/);
+  assert.match(yml, /auto-index-creation: true/);
+  const service = files[Object.keys(files).find((name) => name.endsWith('/service/UsuarioService.java'))];
+  assert.match(service, /mongoSequenceService.next\("usuarios"\)/);
+  assert.doesNotMatch(service, /setId\(null\)/);
+  assert.ok(Object.keys(files).some((name) => name.endsWith('/support/MongoSequenceService.java')));
+});
+
+test('previews UML changes without generating a ZIP', () => {
+  const { previewFromDiagram } = require('./previewUml');
+  const preview = previewFromDiagram({
+    id: 'd1',
+    name: 'Sala',
+    share_token: 'token',
+    graph_data: {
+      cells: [
+        {
+          id: 'c1',
+          type: 'uml.Class',
+          umlName: 'Curso',
+          umlStereotype: 'none',
+          umlAttributes: ['- id: Long', '+ cupo: Integer'],
+          umlMethods: [],
+          position: { x: 10, y: 10 },
+        },
+      ],
+    },
+  });
+  assert.equal(preview.ok, true);
+  assert.ok(preview.phone.entities.some((item) => item.name === 'Curso'));
+  assert.ok(preview.preview.entities.some((item) => item.name === 'Curso'));
+  assert.ok(preview.preview.entities[0].attributes.some((item) => item.startsWith('cupo:Integer')));
+});
+
 test('diffs added classes and attributes against the previous UML', () => {
   const previous = parseUmlModel(sampleSnapshot(), 'd1');
   const current = parseUmlModel(sampleSnapshot(), 'd1');
@@ -204,6 +270,51 @@ test('diffs added classes and attributes against the previous UML', () => {
   const changes = diffUml(previous, current);
   assert.ok(changes.some((item) => item.type === 'ADD_CLASS' && item.entity === 'Categoria'));
   assert.ok(changes.some((item) => item.type === 'ADD_ATTRIBUTE' && item.entity === 'Usuario'));
+});
+
+test('keeps Integer when declared and infers nivel from String', () => {
+  const semantics = require('../../public/attribute-semantics');
+  const inferred = semantics.refineAttributeLines('Administrador', ['+ nivel: String'], []);
+  assert.ok(inferred.attributes.some((line) => /nivel: Integer/.test(line)));
+  const kept = semantics.refineAttributeLines('Administrador', ['+ cupo: Integer'], []);
+  assert.ok(kept.attributes.some((line) => /cupo: Integer/.test(line)));
+});
+
+test('reads JointJS class name when umlName is missing', () => {
+  const { snapshotFromGraph } = require('../../public/diagram-snapshot');
+  const snapshot = snapshotFromGraph({
+    cells: [{ id: 'c1', type: 'uml.Class', name: '«abstract»\nAdministrador', umlAttributes: ['+ nivel: Integer'] }],
+  });
+  assert.equal(snapshot.classes[0].name, 'Administrador');
+});
+
+test('previews the live canvas graphJson instead of a stale saved diagram', () => {
+  const { previewFromDiagram } = require('./previewUml');
+  const preview = previewFromDiagram(
+    {
+      id: 'd1',
+      name: 'Sala',
+      share_token: 'token',
+      graph_data: { cells: [] },
+    },
+    {
+      graphJson: {
+        cells: [
+          {
+            id: 'c1',
+            type: 'uml.Class',
+            umlName: 'Producto',
+            umlStereotype: 'none',
+            umlAttributes: ['- id: Long', '+ nombre: String'],
+            umlMethods: [],
+            position: { x: 0, y: 0 },
+          },
+        ],
+      },
+    }
+  );
+  assert.equal(preview.ok, true);
+  assert.ok(preview.phone.entities.some((item) => item.name === 'Producto'));
 });
 
 test('proxy rejects requests when the generated API is not running', async () => {

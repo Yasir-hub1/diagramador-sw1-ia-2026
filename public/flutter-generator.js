@@ -111,6 +111,19 @@ $(document).ready(function () {
         drawPhone();
       })
     );
+    if (!preview.backendJobId) {
+      $list.empty();
+      $list.append($("<p class='phone-empty'>").text("Esquema UML en vivo. Genera y arranca la API para ver datos."));
+      entity.attributes.forEach(function (attr) {
+        $list.append(
+          $("<div>")
+            .addClass("phone-empty")
+            .append($("<strong>").text(attr.name))
+            .append($("<div>").text(attr.type + (attr.primaryKey ? " · id" : "")))
+        );
+      });
+      return $wrap;
+    }
     try {
       const result = await proxy("GET", entity.endpoint);
       const rows = JSON.parse(result.body || "[]");
@@ -218,7 +231,7 @@ $(document).ready(function () {
   async function drawPhone() {
     const $app = $("#phoneApp").empty();
     if (!preview) {
-      $app.append($("<p class='phone-empty'>").text("Genera para ver la app."));
+      $app.append($("<p class='phone-empty'>").text("Abre este cuadro para ver el UML en la app. Genera solo si quieres ZIP o arrancar la API."));
       return;
     }
     if (route.type === "home") {
@@ -289,6 +302,16 @@ $(document).ready(function () {
       if (!job || chainedBackendId === job.jobId) return;
       chainedBackendId = job.jobId;
       generateFlutter();
+    },
+    fromUml: function (phone) {
+      if (!phone || !phone.entities) {
+        preview = null;
+        drawPhone();
+        return;
+      }
+      preview = phone;
+      $("#phoneLink").text(phone.baseUrl ? phone.baseUrl.replace("http://", "") : "UML en vivo");
+      goHome();
     },
   };
 

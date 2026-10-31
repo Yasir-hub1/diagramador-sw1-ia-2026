@@ -13,7 +13,8 @@ $(document).ready(function () {
   const seenMessageIds = new Set();
 
   function openModal() {
-    $("#modalAI").addClass("visible");
+    $("#modalAI").addClass("visible").prop("hidden", false);
+    $("body").addClass("ai-open");
     $("#aiTextInput").trigger("focus");
     if (!seenMessageIds.size && api.ROOM && api.ROOM.shareToken) {
       fetch("/api/ai/history?shareToken=" + encodeURIComponent(api.ROOM.shareToken), { credentials: "same-origin" })

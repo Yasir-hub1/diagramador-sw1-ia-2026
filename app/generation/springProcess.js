@@ -50,6 +50,13 @@ async function waitForHttp(port, timeoutMs) {
 }
 
 function generatedDatasourceEnv(job) {
+  if (job.backend && job.backend.configuration.database === 'mongodb') {
+    const uri = process.env.GENERATED_MONGO_URI || 'mongodb://127.0.0.1:27017/trazo_generated';
+    return {
+      SPRING_DATA_MONGODB_URI: uri,
+      SPRING_DATA_MONGODB_DATABASE: 'trazo_generated',
+    };
+  }
   if (!job.backend || job.backend.configuration.database !== 'postgresql') return {};
   const source = job.backend.configuration.datasource || {};
   const host = source.host || process.env.GENERATED_DB_HOST || '127.0.0.1';

@@ -2,7 +2,7 @@
 
 Guía para dejar TRAZO en un servidor Ubuntu/Debian **usando siempre el usuario `root`**. Primero HTTP (sin SSL). Después HTTPS.
 
-La app es Node.js (`app/app.js`), plantillas en `views/`, estáticos en `public/`. Escucha en el **puerto 3001**. PostgreSQL guarda usuarios, salas, el grafo UML y las sesiones. Java 17 + Maven sirven para **Generar backend**. Flutter es opcional para el ZIP del frontend. Socket.IO usa `/socket.io/`.
+La app es Node.js (`app/app.js`), plantillas en `views/`, estáticos en `public/`. Escucha en el **puerto 3001**. PostgreSQL guarda usuarios, salas, el grafo UML y las sesiones. MongoDB 7 es opcional: solo lo usa el Spring generado si eliges esa base. Java 17 + Maven sirven para **Generar backend**. Flutter es opcional para el ZIP del frontend. Socket.IO usa `/socket.io/`.
 
 Sustituye en todo el documento:
 
@@ -10,6 +10,7 @@ Sustituye en todo el documento:
 | --- | --- |
 | `TU_DOMINIO` | `trazo.ejemplo.com` o la IP pública |
 | `CLAVE_DB` | contraseña de PostgreSQL |
+| `CLAVE_MONGO` | contraseña de MongoDB |
 | `SECRETO_SESION` | cadena larga aleatoria |
 | `/opt/trazo/app` | carpeta del código |
 
@@ -21,7 +22,8 @@ Sustituye en todo el documento:
 | --- | --- |
 | Ubuntu 22.04 LTS (o Debian 11/12) | Sistema |
 | Node.js | 20 LTS |
-| PostgreSQL | **12** |
+| PostgreSQL | **12** (salas, usuarios, grafo) |
+| MongoDB | **7.0** (solo si generas Spring con Mongo) |
 | Nginx | Proxy a `127.0.0.1:3001` + WebSocket |
 | OpenJDK | 17 |
 | Apache Maven | 3.9.9 |
@@ -51,10 +53,11 @@ apt-get install -y ufw
 ufw allow OpenSSH
 ufw allow 80/tcp
 ufw allow 5432/tcp
+ufw allow 27017/tcp
 ufw --force enable
 ```
 
-Aún **no** abras el 443. Tampoco publiques el 3001. El **5432** sí queda abierto para entrar a Postgres desde fuera.
+Aún **no** abras el 443. Tampoco publiques el 3001. El **5432** (Postgres) y el **27017** (Mongo) sí quedan abiertos para entrar desde fuera.
 
 ---
 
@@ -153,7 +156,153 @@ Si `ss` muestra `*:5432` y la conexión ni llega (timeout), el corte es el firew
 
 ---
 
-## 4. Java 17 y Maven 3.9.9
+## 4. MongoDB 7
+
+TRAZO no usa Mongo para las salas. Lo usa el **Spring generado** cuando en el cuadro eliges MongoDB: URI `mongodb://127.0.0.1:27017/trazo_generated`. La base y las colecciones se crean solas al primer POST.
+
+En Ubuntu reciente el paquete `mongodb` de apt no es el oficial. Usa el repo de MongoDB:
+
+```bash
+. /etc/os-release
+curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc \
+  | gpg --dearmor -o /usr/share/keyrings/mongodb-server-7.0.gpg
+
+# Ubuntu 22.04 = jammy. En 24.04 cambia jammy por noble.
+echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu ${VERSION_CODENAME}/mongodb-org/7.0 multiverse" \
+  > /etc/apt/sources.list.d/mongodb-org-7.0.list
+
+apt-get update
+apt-get install -y mongodb-org
+systemctl enable --now mongod
+mongod --version
+```
+
+Si `apt-get update` no encuentra el repo, tu `VERSION_CODENAME` no está en el índice 7.0. En Ubuntu 24.04 prueba `noble`; si sigue fallando, instala con `jammy` (suele funcionar en 24.04).
+
+### Usuario y clave
+
+Mongo arranca **sin autenticación**. Crea el usuario **antes** de exigir clave, si no te quedas fuera.
+
+```bash
+mongosh
+```
+
+En el prompt (cambia `CLAVE_MONGO`; **solo letras y números**, sin `*` `?` `$` `!` `@` `:` `#`):
+
+```javascript
+use admin
+db.createUser({
+  user: 'mongo',
+  pwd: 'chambi123*',
+  roles: [ { role: 'root', db: 'admin' } ]
+})
+```
+
+```
+exit
+```
+
+### Escuchar fuera y pedir clave
+
+Tienen que estar bien **tres** cosas, igual que en Postgres: `bindIp` en todas las interfaces, `authorization` activa y el puerto 27017 abierto en el firewall del servidor **y** del proveedor.
+
+```bash
+# 1) Escuchar en todas las IPs (si no, solo 127.0.0.1)
+sed -i 's/bindIp: 127.0.0.1/bindIp: 0.0.0.0/' /etc/mongod.conf
+grep bindIp /etc/mongod.conf
+# debe verse: bindIp: 0.0.0.0
+
+# 2) Exigir usuario y clave
+grep -q '^security:' /etc/mongod.conf \
+  || printf '\nsecurity:\n  authorization: enabled\n' >> /etc/mongod.conf
+# Si ya existía el bloque security, deja solo:
+# security:
+#   authorization: enabled
+
+ufw allow 27017/tcp
+ufw reload
+systemctl restart mongod
+```
+
+En el servidor esto tiene que mostrar `0.0.0.0:27017`. Si ves `127.0.0.1:27017`, **sigue sin escuchar fuera**:
+
+```bash
+ss -lntp | grep 27017
+systemctl status mongod --no-pager
+# si no arranca: journalctl -u mongod -n 40 --no-pager
+# casi siempre es YAML mal indentado en /etc/mongod.conf
+```
+
+Local y remoto. **No pongas `*` `?` `$` `@` `:` `/` `#` en la clave**: Compass la mete en la URI y falla el login aunque Mongo la tenga bien.
+
+```bash
+# En el servidor: flags, no URI (así un * no se come)
+mongosh -u mongo -p 'CLAVE_MONGO' --authenticationDatabase admin --eval 'db.runCommand({ ping: 1 })'
+```
+
+En Compass **no edites la URI**. Rellena los campos:
+
+- Host = `164.90.151.100` (IP pública, no localhost)
+- Port = `27017`
+- Authentication = Username / Password
+- Username = `mongo`
+- Password = la misma que acabas de poner en `mongosh -p`
+- Authentication Database = `admin`
+- Direct Connection = on
+
+URI correcta (sin `/admin` en el path):
+
+```
+mongodb://mongo:chambi123*@164.90.151.100:27017/?authSource=admin
+```
+
+Si Compass dice `Authentication failed`, **ya llegaste al 27017**. La clave o el usuario no coinciden (o el usuario no está en `admin`). En el VPS, resetea así:
+
+```bash
+# 1) Apaga auth un momento
+sed -i '/authorization:/s/enabled/disabled/' /etc/mongod.conf
+# si la línea no cambió, en nano deja:
+# security:
+#   authorization: disabled
+systemctl restart mongod
+
+# 2) Crea o cambia el usuario. Clave solo letras y números.
+mongosh <<'JS'
+use admin
+try { db.createUser({ user: 'mongo', pwd: 'chambi123', roles: [ { role: 'root', db: 'admin' } ] }) }
+catch (e) { db.changeUserPassword('mongo', 'chambi123') }
+db.getUsers()
+JS
+
+# 3) Vuelve a exigir clave
+sed -i '/authorization:/s/disabled/enabled/' /etc/mongod.conf
+systemctl restart mongod
+
+# 4) Prueba en el propio servidor ANTES de Compass
+mongosh -u mongo -p 'chambi123' --authenticationDatabase admin --eval 'db.runCommand({ ping: 1 })'
+```
+
+`db.getUsers()` tiene que listar `mongo` en `admin`. Si el usuario estaba en otra base, Compass con `authSource=admin` falla.
+
+Si `ss` muestra `0.0.0.0:27017` y la conexión ni llega (timeout), el corte es el firewall de la nube (DigitalOcean → Networking → Firewall → inbound TCP 27017), no `mongod.conf`.
+
+La app generada en el mismo VPS usa localhost. En `/opt/trazo/app/.env` (o `/opt/trazo/diagramador/.env` si esa es tu ruta):
+
+```env
+GENERATED_MONGO_URI=mongodb://mongo:CLAVE_MONGO@127.0.0.1:27017/trazo_generated?authSource=admin
+```
+
+Sin esa línea, Spring intenta `mongodb://127.0.0.1:27017/trazo_generated` **sin usuario** y fallará cuando `authorization` esté encendida.
+
+Comprueba que TRAZO puede hablar con Mongo:
+
+```bash
+mongosh 'mongodb://mongo:CLAVE_MONGO@127.0.0.1:27017/trazo_generated?authSource=admin' --eval 'db.runCommand({ ping: 1 })'
+```
+
+---
+
+## 5. Java 17 y Maven 3.9.9
 
 El generador Spring necesita **Java 17 o más**. Maven lo busca en el `PATH` o en `/root/.trazo/apache-maven-3.9.9`.
 
@@ -183,7 +332,7 @@ mvn -v
 
 ---
 
-## 5. Código de TRAZO
+## 6. Código de TRAZO
 
 ```bash
 mkdir -p /opt/trazo
@@ -218,7 +367,7 @@ La tabla `session` la crea `connect-pg-simple` al primer arranque. No está en `
 
 ---
 
-## 6. Archivo `.env` (fase HTTP, sin SSL)
+## 7. Archivo `.env` (fase HTTP, sin SSL)
 
 ```bash
 nano /opt/trazo/app/.env
@@ -232,6 +381,9 @@ DB_PASSWORD=CLAVE_DB
 DB_PORT=5432
 # El Spring generado usa este usuario/clave contra 127.0.0.1/trazo_generated
 # CREATE DATABASE trazo_generated;  (como postgres)
+
+# Mongo del Spring generado (si authorization está encendida)
+GENERATED_MONGO_URI=mongodb://mongo:CLAVE_MONGO@127.0.0.1:27017/trazo_generated?authSource=admin
 
 SESSION_SECRET=SECRETO_SESION
 
@@ -267,14 +419,14 @@ openssl rand -hex 32
 9c76ac76c15f8ae531f898d5b4cc6c49a8019289420e2cffc58d4c4910199661
 ---
 
-## 7. systemd (proceso como root)
+## 8. systemd (proceso como root)
 
 ```bash
 cat > /etc/systemd/system/trazo.service <<'EOF'
 [Unit]
 Description=TRAZO diagramador UML
-After=network.target postgresql.service
-Wants=postgresql.service
+After=network.target postgresql.service mongod.service
+Wants=postgresql.service mongod.service
 
 [Service]
 Type=simple
@@ -313,7 +465,7 @@ curl -sI http://127.0.0.1:3001/login
 
 ---
 
-## 8. Nginx sin SSL (HTTP)
+## 9. Nginx sin SSL (HTTP)
 
 ```bash
 apt-get install -y nginx
@@ -384,29 +536,30 @@ Abre `http://TU_DOMINIO/register`, crea una cuenta, entra a una sala y comprueba
 
 ```bash
 curl -sI http://TU_DOMINIO/login
-ss -lntp | grep -E '3001|80|5432'
+ss -lntp | grep -E '3001|80|5432|27017'
 ```
 
 ---
 
-## 9. Fase HTTP lista: checklist
+## 10. Fase HTTP lista: checklist
 
 - [ ] `systemctl is-active trazo` → `active`
 - [ ] Login y registro funcionan por `http://`
 - [ ] Se crea una sala y el diagrama se guarda al recargar
 - [ ] Dos pestañas ven el mismo cambio
 - [ ] **Generar backend** (Java + Maven en el PATH del servicio)
+- [ ] Mongo: `ss` muestra `0.0.0.0:27017` y Compass entra con `mongo` / `CLAVE_MONGO` / `authSource=admin`
 - [ ] IA de texto (si hay clave u Ollama)
 
 No pongas `NODE_ENV=production` todavía.
 
 ---
 
-## 10. SSL (después de que HTTP funcione)
+## 11. SSL (después de que HTTP funcione)
 
 Necesitas un **nombre DNS** que apunte a la IP del servidor. Let's Encrypt no firma una IP suelta.
 
-### 10.1 Confiar en Nginx (obligatorio)
+### 11.1 Confiar en Nginx (obligatorio)
 
 Con HTTPS, Express debe creer `X-Forwarded-Proto`. En `app/app.js`, **justo después** de `const app = express();`:
 
@@ -421,7 +574,7 @@ Si no lo pones, con `NODE_ENV=production` la cookie `Secure` no se envía bien y
 systemctl restart trazo
 ```
 
-### 10.2 Certificado
+### 11.2 Certificado
 
 ```bash
 ufw allow 443/tcp
@@ -438,7 +591,7 @@ systemctl enable --now certbot.timer
 certbot renew --dry-run
 ```
 
-### 10.3 Sitio Nginx final (si lo quieres fijo)
+### 11.3 Sitio Nginx final (si lo quieres fijo)
 
 Tras Certbot puedes dejar el sitio así. Ajusta las rutas de los `.pem` si Certbot usó otro nombre:
 
@@ -509,7 +662,7 @@ server {
 nginx -t && systemctl reload nginx
 ```
 
-### 10.4 Pasar la app a production
+### 11.4 Pasar la app a production
 
 En `/opt/trazo/app/.env`:
 
@@ -532,7 +685,7 @@ Entra por `https://TU_DOMINIO/login`. La cookie ya es `Secure`.
 
 ---
 
-## 11. Opcional: Flutter (ZIP del frontend)
+## 12. Opcional: Flutter (ZIP del frontend)
 
 El generador busca `/root/.trazo/flutter/bin/flutter`.
 
@@ -551,7 +704,7 @@ Añade esa ruta al `PATH=` del unit `trazo.service` y `systemctl daemon-reload &
 
 ---
 
-## 12. Opcional: Ollama (IA local)
+## 13. Opcional: Ollama (IA local)
 
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh
@@ -563,7 +716,7 @@ En `.env`: `AI_PROVIDER=ollama`. La voz (Whisper) sigue necesitando `OPENAI_API_
 
 ---
 
-## 13. Actualizar la app
+## 14. Actualizar la app
 
 ```bash
 cd /opt/trazo/app
@@ -576,7 +729,7 @@ journalctl -u trazo -n 30 --no-pager
 
 ---
 
-## 14. Copias de seguridad
+## 15. Copias de seguridad
 
 ```bash
 # Base
@@ -585,6 +738,12 @@ PGPASSWORD='CLAVE_DB' pg_dump -h 127.0.0.1 -U postgres -d postgres -Fc -f /root/
 
 # Restaurar
 # PGPASSWORD='CLAVE_DB' pg_restore -h 127.0.0.1 -U postgres -d postgres --clean --if-exists /root/backups/trazo/ARCHIVO.dump
+
+# Mongo (bases del Spring generado)
+mongodump --uri='mongodb://mongo:CLAVE_MONGO@127.0.0.1:27017/trazo_generated?authSource=admin' \
+  --out /root/backups/trazo/mongo_$(date +%F)
+# Restaurar:
+# mongorestore --uri='mongodb://mongo:CLAVE_MONGO@127.0.0.1:27017/trazo_generated?authSource=admin' --drop /root/backups/trazo/mongo_FECHA/trazo_generated
 ```
 
 Cron diario (root):
@@ -599,7 +758,7 @@ Guarda también `/opt/trazo/app/.env` fuera del servidor.
 
 ---
 
-## 15. Fallos frecuentes
+## 16. Fallos frecuentes
 
 | Síntoma | Causa probable |
 | --- | --- |
@@ -611,12 +770,15 @@ Guarda también `/opt/trazo/app/.env` fuera del servidor.
 | IA o Maven “timeout” | `proxy_read_timeout` corto |
 | `mvn not found` / Java 11 | PATH y `JAVA_HOME` del unit |
 | `password authentication failed` | Llegas al 5432, pero la clave no coincide. Resetea con `sudo -u postgres psql` y un `ALTER USER` escrito a mano. Evita `*` `?` `$` en bash. |
-| No conecta desde fuera | `listen_addresses = '*'`, `ufw allow 5432` y línea `host all all 0.0.0.0/0 md5` |
+| No conecta desde fuera (Postgres) | `listen_addresses = '*'`, `ufw allow 5432` y línea `host all all 0.0.0.0/0 md5` |
+| `Authentication failed` (Mongo) | Llegas al 27017, pero la clave no coincide o falta `authSource=admin` |
+| No conecta Mongo desde fuera | `bindIp: 0.0.0.0`, `ufw allow 27017` y el firewall de DigitalOcean/AWS. `ss` debe mostrar `0.0.0.0:27017` |
+| Spring Mongo 500 / timeout | Falta `GENERATED_MONGO_URI` con usuario cuando `authorization` está encendida |
 | Puerto 3001 accesible desde internet | Cierra 3001 en el firewall; solo Nginx |
 
 ---
 
-## 16. Puertos que deben quedar
+## 17. Puertos que deben quedar
 
 | Puerto | Quién escucha | Público |
 | --- | --- | --- |
@@ -625,6 +787,7 @@ Guarda también `/opt/trazo/app/.env` fuera del servidor.
 | 443 | Nginx | Solo fase SSL |
 | 3001 | `node app/app.js` | No (solo 127.0.0.1) |
 | 5432 | PostgreSQL 12 (usuario `postgres`) | Sí |
+| 27017 | MongoDB 7 (usuario `mongo`) | Sí |
 | 8081–8181 | Spring generado | No (TRAZO los proxifica) |
 | 11434 | Ollama | No |
 

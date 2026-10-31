@@ -24,6 +24,15 @@ function stopJobsForToken(shareToken) {
   }
 }
 
+function lastRunningJob(shareToken) {
+  let found = null;
+  for (const job of jobs.values()) {
+    if (job.shareToken !== shareToken || job.runtimeStatus !== 'running') continue;
+    if (!found || job.createdAt > found.createdAt) found = job;
+  }
+  return found;
+}
+
 function lastReadyJob(shareToken, exceptId) {
   let found = null;
   for (const job of jobs.values()) {
@@ -89,4 +98,4 @@ function toClient(job) {
   };
 }
 
-module.exports = { createJob, getJob, lastReadyJob, toClient };
+module.exports = { createJob, getJob, lastReadyJob, lastRunningJob, toClient };

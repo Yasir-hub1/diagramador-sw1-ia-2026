@@ -113,10 +113,10 @@ function repositoryFile(entity) {
   const slug = snakeCase(name);
   return (
     GENERATED +
-    "import '../../generated/api/" +
+    "import '../../../generated/api/" +
     slug +
     "_api.dart';\n" +
-    "import '../../generated/models/" +
+    "import '../../../generated/models/" +
     slug +
     ".dart';\n\n" +
     'class ' +
